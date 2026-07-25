@@ -42,10 +42,6 @@ export function buildRestrictedAppsProfile(options: MobileConfigOptions): string
 \t\t\t<string>${contentUUID}</string>
 \t\t\t<key>PayloadVersion</key>
 \t\t\t<integer>1</integer>
-\t\t\t<key>blacklistedAppBundleIDs</key>
-\t\t\t<array>
-${bundleIdsXml}
-\t\t\t</array>
 \t\t\t<key>blockedAppBundleIDs</key>
 \t\t\t<array>
 ${bundleIdsXml}
