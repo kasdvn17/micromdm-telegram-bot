@@ -1,0 +1,19 @@
+node_modules
+dist
+.DS_Store
+
+.env
+.env.*
+!.env.example
+
+data/logs/bot-*.log
+data/logs/*.log
+
+# Ignore all log files
+**/*.log
+
+# Optional: ignore specific log files if you want to keep some
+data/logs/bot-latest.log
+
+# Ignore the directory itself
+data/logs

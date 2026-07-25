@@ -1,0 +1,51 @@
+[
+  {
+    "timestamp": "2026-07-25T17:21:48.468Z",
+    "event": {
+      "type": "emergency.command.executed",
+      "command": "location",
+      "telegramUsername": "kasdvn17",
+      "telegramId": 6221269635
+    }
+  },
+  {
+    "timestamp": "2026-07-25T17:22:19.332Z",
+    "event": {
+      "type": "error",
+      "source": "command:location",
+      "message": "Timeout chờ Acknowledge cho command DeviceLocation (commandUUID=04f50261-445e-421f-aa47-ffcfa2ef01a8). Thiết bị có thể đang offline."
+    }
+  },
+  {
+    "timestamp": "2026-07-25T17:22:33.317Z",
+    "event": {
+      "type": "emergency.command.executed",
+      "command": "shutdown",
+      "telegramUsername": "kasdvn17",
+      "telegramId": 6221269635
+    }
+  },
+  {
+    "timestamp": "2026-07-25T17:23:52.015Z",
+    "event": {
+      "type": "error",
+      "source": "command:blacklist",
+      "message": "Cú pháp: /blacklist add <bundleId>"
+    }
+  },
+  {
+    "timestamp": "2026-07-25T17:24:37.942Z",
+    "event": {
+      "type": "emergency.command.executed",
+      "command": "lost",
+      "telegramUsername": "kasdvn17",
+      "telegramId": 6221269635
+    }
+  },
+  {
+    "timestamp": "2026-07-25T17:24:39.537Z",
+    "event": {
+      "type": "lostmode.enabled"
+    }
+  }
+]
