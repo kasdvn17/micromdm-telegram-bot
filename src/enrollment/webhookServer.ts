@@ -4,7 +4,7 @@ import { MicroMdmWebhookEvent } from "../types/micromdm.types";
 import { EventBus } from "../events/eventBus";
 import { ActivationLockServiceApi } from "../services/activationLockService";
 import { getLogger } from "../utils/logger";
-import plist from "plist";
+import { parse } from "plist";
 
 export interface WebhookServerOptions {
   port: number;
@@ -105,7 +105,7 @@ function decodeRawPayload(base64: string | undefined): Record<string, unknown> {
     }
 
     // 3. Fallback to XML Plist parser (for traditional Apple MDM protocol)
-    const parsedPlist = plist.parse(decodedStr);
+    const parsedPlist = parse(decodedStr);
 
     if (typeof parsedPlist === "object" && parsedPlist !== null && !Array.isArray(parsedPlist)) {
       return parsedPlist as Record<string, unknown>;
