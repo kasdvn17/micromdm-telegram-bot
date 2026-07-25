@@ -123,6 +123,29 @@ async function handleWebhookBody(
     return;
   }
 
+  // MicroMDM đôi khi gửi acknowledge_event trong topic "mdm.Connect" (heartbeat)
+  // thay vì "mdm.Acknowledge". Do đó, chúng ta xử lý acknowledge_event độc lập với topic.
+  if (event.acknowledge_event) {
+    const ack = event.acknowledge_event;
+    const decodedPayload = decodeRawPayload(ack.raw_payload);
+    client.resolveAcknowledge(ack.command_uuid, ack.status, decodedPayload);
+
+    if (ack.status === "Acknowledged") {
+      bus.publish({
+        type: "mdm.command.succeeded",
+        command: ack.command_uuid,
+        commandUUID: ack.command_uuid,
+      });
+    } else if (ack.status === "Error") {
+      bus.publish({
+        type: "mdm.command.failed",
+        command: ack.command_uuid,
+        commandUUID: ack.command_uuid,
+        error: "MicroMDM báo lỗi khi thực thi command trên thiết bị",
+      });
+    }
+  }
+
   switch (event.topic) {
     case "mdm.Authenticate": {
       /**
@@ -149,32 +172,7 @@ async function handleWebhookBody(
     }
 
     case "mdm.Acknowledge": {
-      const ack = event.acknowledge_event;
-      if (!ack) break;
-
-      /**
-       * Bug #1 fix: raw_payload đến dưới dạng base64 string ([]byte trong Go được
-       * JSON-marshal). Phải decode thành object trước khi truyền vào resolveAcknowledge.
-       * Nếu không decode, mọi command cần đọc dữ liệu (DeviceInformation, DeviceLocation)
-       * sẽ nhận raw={} và trả về giá trị mặc định (battery=0, location=0,0, ...).
-       */
-      const decodedPayload = decodeRawPayload(ack.raw_payload);
-      client.resolveAcknowledge(ack.command_uuid, ack.status, decodedPayload);
-
-      if (ack.status === "Acknowledged") {
-        bus.publish({
-          type: "mdm.command.succeeded",
-          command: ack.command_uuid,
-          commandUUID: ack.command_uuid,
-        });
-      } else if (ack.status === "Error") {
-        bus.publish({
-          type: "mdm.command.failed",
-          command: ack.command_uuid,
-          commandUUID: ack.command_uuid,
-          error: "MicroMDM báo lỗi khi thực thi command trên thiết bị",
-        });
-      }
+      // Đã được xử lý ở khối bên ngoài switch thông qua event.acknowledge_event
       break;
     }
 
