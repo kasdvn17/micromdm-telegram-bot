@@ -6,7 +6,7 @@ export type MdmRequestType =
   | "ShutDownDevice"
   | "EnableLostMode"
   | "DisableLostMode"
-  | "PlaySound"
+  | "PlayLostModeSound"
   | "DeviceInformation"
   /**
    * DeviceLocation: chỉ hoạt động khi thiết bị đang ở trong Lost Mode (MDM Lost Mode bật).
@@ -87,11 +87,11 @@ export interface DeviceInformationResult {
  */
 export interface MicroMdmWebhookEvent {
   topic:
-    | "mdm.Authenticate"
-    | "mdm.TokenUpdate"
-    | "mdm.CheckOut"
-    | "mdm.Acknowledge"
-    | "mdm.Connect";
+  | "mdm.Authenticate"
+  | "mdm.TokenUpdate"
+  | "mdm.CheckOut"
+  | "mdm.Acknowledge"
+  | "mdm.Connect";
   event_id: string;
   created_at: string;
   acknowledge_event?: {

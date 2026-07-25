@@ -13,7 +13,7 @@ import {
  * gọi để tương tác với thiết bị - không service nào được gọi thẳng `MicroMdmClient`.
  */
 export class DeviceCommands {
-  constructor(private readonly client: MicroMdmClient, private readonly deviceUUID: string) {}
+  constructor(private readonly client: MicroMdmClient, private readonly deviceUUID: string) { }
 
   lock(pin?: string): Promise<MdmCommandQueuedResult> {
     return this.client.queueCommand({
@@ -63,7 +63,7 @@ export class DeviceCommands {
   playSound(): Promise<MdmCommandQueuedResult> {
     return this.client.queueCommand({
       udid: this.deviceUUID,
-      request_type: "PlaySound",
+      request_type: "PlayLostModeSound",
     });
   }
 
