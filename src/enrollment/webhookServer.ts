@@ -145,6 +145,8 @@ async function handleWebhookBody(
     const decodedPayload = decodeRawPayload(ack.raw_payload);
     client.resolveAcknowledge(ack.command_uuid, ack.status, decodedPayload);
 
+    console.log(decodedPayload);
+
     if (ack.status === "Acknowledged") {
       bus.publish({
         type: "mdm.command.succeeded",
