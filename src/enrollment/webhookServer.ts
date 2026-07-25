@@ -154,11 +154,22 @@ async function handleWebhookBody(
         commandUUID: ack.command_uuid,
       });
     } else if (ack.status === "Error") {
+      let errorMessage = "MicroMDM báo lỗi khi thực thi command trên thiết bị";
+      
+      if (Array.isArray(decodedPayload.ErrorChain) && decodedPayload.ErrorChain.length > 0) {
+        const firstError = decodedPayload.ErrorChain[0] as Record<string, unknown>;
+        if (firstError && typeof firstError.LocalizedDescription === "string") {
+          errorMessage = firstError.LocalizedDescription;
+        } else if (firstError && typeof firstError.USEnglishDescription === "string") {
+          errorMessage = firstError.USEnglishDescription;
+        }
+      }
+
       bus.publish({
         type: "mdm.command.failed",
         command: ack.command_uuid,
         commandUUID: ack.command_uuid,
-        error: "MicroMDM báo lỗi khi thực thi command trên thiết bị",
+        error: errorMessage,
       });
     }
   }

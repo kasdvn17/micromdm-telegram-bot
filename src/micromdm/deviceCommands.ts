@@ -49,7 +49,7 @@ export class DeviceCommands {
     return this.client.queueCommand({
       udid: this.deviceUUID,
       request_type: "EnableLostMode",
-      ...(message ? { Message: message } : {}),
+      Message: message ?? "Thiết bị đã bị khoá Chế độ Mất",
     });
   }
 
@@ -74,9 +74,10 @@ export class DeviceCommands {
       Queries: ["BatteryLevel", "BatteryState"],
     });
     const raw = result.raw ?? {};
+    const queryResponses = (raw["QueryResponses"] as Record<string, unknown>) ?? raw;
     return {
-      batteryLevel: Number(raw["BatteryLevel"] ?? 0),
-      batteryState: (raw["BatteryState"] as BatteryInfo["batteryState"]) ?? "Unknown",
+      batteryLevel: Number(queryResponses["BatteryLevel"] ?? 0),
+      batteryState: (queryResponses["BatteryState"] as BatteryInfo["batteryState"]) ?? "Unknown",
       fetchedAt: new Date().toISOString(),
       source: "realtime",
     };
@@ -93,10 +94,11 @@ export class DeviceCommands {
       request_type: "DeviceLocation",
     });
     const raw = result.raw ?? {};
+    const locationDict = (raw["QueryResponses"] as Record<string, unknown>) ?? raw;
     return {
-      latitude: Number(raw["Latitude"] ?? 0),
-      longitude: Number(raw["Longitude"] ?? 0),
-      horizontalAccuracy: raw["HorizontalAccuracy"] as number | undefined,
+      latitude: Number(locationDict["Latitude"] ?? 0),
+      longitude: Number(locationDict["Longitude"] ?? 0),
+      horizontalAccuracy: locationDict["HorizontalAccuracy"] as number | undefined,
       fetchedAt: new Date().toISOString(),
       source: "realtime",
     };
@@ -116,13 +118,14 @@ export class DeviceCommands {
       ],
     });
     const raw = result.raw ?? {};
+    const queryResponses = (raw["QueryResponses"] as Record<string, unknown>) ?? raw;
     return {
-      deviceName: raw["DeviceName"] as string | undefined,
-      modelName: raw["Model"] as string | undefined,
-      osVersion: raw["OSVersion"] as string | undefined,
-      batteryLevel: raw["BatteryLevel"] as number | undefined,
-      batteryState: raw["BatteryState"] as string | undefined,
-      isSupervised: raw["IsSupervised"] as boolean | undefined,
+      deviceName: queryResponses["DeviceName"] as string | undefined,
+      modelName: queryResponses["Model"] as string | undefined,
+      osVersion: queryResponses["OSVersion"] as string | undefined,
+      batteryLevel: queryResponses["BatteryLevel"] as number | undefined,
+      batteryState: queryResponses["BatteryState"] as string | undefined,
+      isSupervised: queryResponses["IsSupervised"] as boolean | undefined,
       fetchedAt: new Date().toISOString(),
       source: "realtime",
     };

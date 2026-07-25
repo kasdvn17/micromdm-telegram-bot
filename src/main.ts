@@ -57,11 +57,7 @@ async function main(): Promise<void> {
 
   // 3. Telegram bot + notification service
   const bot = createBot(config.secrets.telegramBotToken);
-  // Bot chỉ có 1 chat chính chủ - lấy chatId từ tin nhắn đầu tiên do chính
-  // chủ gửi (đơn giản hoá: coi telegramId của Authorized Username == chatId
-  // cho chat riêng 1-1, đúng với cách Telegram cấp ID cho private chat).
-  let primaryChatId: number | null = null;
-  const notificationService = createNotificationService(bot);
+  const notificationService = createNotificationService(bot, config.secrets.authorizedTelegramChatId);
 
   // 4. Auth
   const emergencyAuthService = createEmergencyAuthService(
@@ -146,17 +142,6 @@ async function main(): Promise<void> {
   );
 
   bot.on("message", (msg) => {
-    // Bind primaryChatId lần đầu tiên tin nhắn tới từ đúng Authorized Username
-    // (dùng để notificationService biết gửi notify chủ động về đâu).
-    if (
-      primaryChatId === null &&
-      msg.from?.username?.toLowerCase().replace(/^@/, "") ===
-        config.secrets.authorizedTelegramUsername
-    ) {
-      primaryChatId = msg.chat.id;
-      notificationService.setChatId(primaryChatId);
-      logger.info("[main] Đã bind primaryChatId cho notification", { primaryChatId });
-    }
     void router(bot, msg);
   });
 
