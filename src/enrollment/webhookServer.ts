@@ -46,6 +46,8 @@ export function startWebhookServer(
   const webhookPath = options.webhookPath ?? "/webhook/micromdm";
 
   const server = http.createServer((req, res) => {
+    getLogger().info(`[webhookServer] Nhận request: ${req.method} ${req.url}`);
+
     // Bug #9 fix: Validate URL path — only process requests at the expected path.
     // This prevents arbitrary callers from injecting fake MDM events.
     if (req.url !== webhookPath) {
@@ -64,6 +66,7 @@ export function startWebhookServer(
     });
 
     req.on("end", () => {
+      getLogger().info(`[webhookServer] Body: ${body}`);
       res.writeHead(200).end();
       void handleWebhookBody(body, options, client, bus, activationLockService);
     });
