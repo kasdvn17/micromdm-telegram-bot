@@ -11,11 +11,12 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "node-telegram-bot-api": "^0.66.0",
-    "winston": "^3.13.0",
-    "winston-daily-rotate-file": "^5.0.0",
     "dotenv": "^16.4.5",
-    "node-fetch": "^2.7.0"
+    "node-fetch": "^2.7.0",
+    "node-telegram-bot-api": "^0.66.0",
+    "plist": "^5.0.0",
+    "winston": "^3.13.0",
+    "winston-daily-rotate-file": "^5.0.0"
   },
   "devDependencies": {
     "typescript": "^5.5.4",

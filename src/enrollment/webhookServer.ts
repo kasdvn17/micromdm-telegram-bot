@@ -4,6 +4,7 @@ import { MicroMdmWebhookEvent } from "../types/micromdm.types";
 import { EventBus } from "../events/eventBus";
 import { ActivationLockServiceApi } from "../services/activationLockService";
 import { getLogger } from "../utils/logger";
+import plist from "plist";
 
 export interface WebhookServerOptions {
   port: number;
@@ -93,21 +94,26 @@ function decodeRawPayload(base64: string | undefined): Record<string, unknown> {
   if (!base64) return {};
 
   try {
-    // Normalize Base64URL to standard Base64
-    const normalizedBase64 = base64.replace(/-/g, "+").replace(/_/g, "/");
-    const jsonStr = Buffer.from(normalizedBase64, "base64").toString("utf-8");
+    // 1. Convert Base64 (supporting base64url if needed) to standard UTF-8 string
+    const normalized = base64.replace(/-/g, "+").replace(/_/g, "/");
+    const decodedStr = Buffer.from(normalized, "base64").toString("utf-8");
 
-    // Prevent prototype pollution via reviver
-    const parsed = JSON.parse(jsonStr, (key, value) =>
-      key === "__proto__" ? undefined : value
-    );
-
-    if (typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)) {
-      return parsed as Record<string, unknown>;
+    // 2. Try parsing as JSON first (for Apple Declarative Management / DDMF)
+    if (decodedStr.trim().startsWith("{")) {
+      const parsedJson = JSON.parse(decodedStr);
+      return typeof parsedJson === "object" && parsedJson !== null ? parsedJson : {};
     }
+
+    // 3. Fallback to XML Plist parser (for traditional Apple MDM protocol)
+    const parsedPlist = plist.parse(decodedStr);
+
+    if (typeof parsedPlist === "object" && parsedPlist !== null && !Array.isArray(parsedPlist)) {
+      return parsedPlist as Record<string, unknown>;
+    }
+
     return {};
   } catch (error) {
-    getLogger().warn("[webhookServer] Không thể decode raw_payload từ base64", {
+    getLogger().warn("[webhookServer] Cannot decode raw_payload", {
       base64Prefix: base64.slice(0, 40),
       error: error instanceof Error ? error.message : String(error),
     });
