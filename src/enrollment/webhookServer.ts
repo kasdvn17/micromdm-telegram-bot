@@ -91,16 +91,25 @@ export function startWebhookServer(
  */
 function decodeRawPayload(base64: string | undefined): Record<string, unknown> {
   if (!base64) return {};
+
   try {
-    const jsonStr = Buffer.from(base64, "base64").toString("utf-8");
-    const parsed = JSON.parse(jsonStr);
+    // Normalize Base64URL to standard Base64
+    const normalizedBase64 = base64.replace(/-/g, "+").replace(/_/g, "/");
+    const jsonStr = Buffer.from(normalizedBase64, "base64").toString("utf-8");
+
+    // Prevent prototype pollution via reviver
+    const parsed = JSON.parse(jsonStr, (key, value) =>
+      key === "__proto__" ? undefined : value
+    );
+
     if (typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)) {
       return parsed as Record<string, unknown>;
     }
     return {};
-  } catch {
+  } catch (error) {
     getLogger().warn("[webhookServer] Không thể decode raw_payload từ base64", {
       base64Prefix: base64.slice(0, 40),
+      error: error instanceof Error ? error.message : String(error),
     });
     return {};
   }
