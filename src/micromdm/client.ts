@@ -238,7 +238,7 @@ export class MicroMdmClient {
   private async sendPush(udid: string): Promise<void> {
     try {
       const res = await fetch(`${this.options.baseUrl}/push/${udid}`, {
-        method: "POST",
+        method: "GET",
         headers: this.authHeaders(),
       });
       if (!res.ok) {

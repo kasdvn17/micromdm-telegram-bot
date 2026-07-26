@@ -98,7 +98,7 @@ export function loadConstants(env: NodeJS.ProcessEnv = process.env): AppConstant
     restrictedAppsFilePath:
       env.RESTRICTED_APPS_FILE_PATH?.trim() ||
       path.join(DATA_DIR, "restricted-apps.json"),
-    webhookPort: parseIntEnv(env.WEBHOOK_PORT, 8081),
+    webhookPort: parseIntEnv(env.WEBHOOK_PORT, 6364),
     commandResultTimeoutMs: parseIntEnv(env.COMMAND_RESULT_TIMEOUT_MS, 30_000),
   };
 }
