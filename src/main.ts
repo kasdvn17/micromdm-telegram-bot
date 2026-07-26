@@ -45,7 +45,8 @@ import {
   createListAppsCommand,
   createRemoveAppCommand,
 } from "./commands/emergency/app.command";
-import { createListProfilesCommand, createRemoveProfileCommand, createInstallProfileCommand } from "./commands/emergency/profile.command";
+import { createInstallProfileCommand, createListProfilesCommand, createRemoveProfileCommand } from "./commands/emergency/profile.command";
+import { createHelpCommand } from "./commands/normal/help.command";
 
 async function main(): Promise<void> {
   // 1. Config - fail-fast nếu thiếu biến môi trường
@@ -181,6 +182,7 @@ async function main(): Promise<void> {
     createListProfilesCommand(deviceCommands),
     createRemoveProfileCommand(deviceCommands),
     createInstallProfileCommand(deviceCommands, config.constants.dataDir),
+    createHelpCommand(),
   ];
 
   const router = createRouter(

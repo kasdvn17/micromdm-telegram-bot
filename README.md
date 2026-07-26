@@ -24,7 +24,7 @@ Một Telegram Bot cá nhân viết bằng TypeScript, đóng vai trò client/co
 
 | Lớp | Điều kiện | Áp dụng cho |
 |---|---|---|
-| **Normal** | Đúng Telegram username = `AUTHORIZED_TELEGRAM_USERNAME` | `/ping`, `/health`, `/whoami`, `/logs`, `/history`, `/notify`, `/blacklist`, `/focus`, `/auth test` |
+| **Normal** | Đúng Telegram username = `AUTHORIZED_TELEGRAM_USERNAME` | `/ping`, `/health`, `/whoami`, `/logs`, `/history`, `/notify`, `/blacklist`, `/focus`, `/auth test`, `/help` |
 | **Emergency** | Đúng `EMERGENCY_PASSWORD` (**không** cần đúng username - bất kỳ ai biết mật khẩu đều gọi được) | `/lock`, `/restart`, `/shutdown`, `/playsound`, `/battery`, `/location`, `/deviceinfo`, `/status`, `/lost`, `/unlock`, `/safe`, `/mark`, `/installapp`, `/listapps`, `/removeapp` |
 | **Two-Factor** | Đúng username **VÀ** đúng mật khẩu | `/api` |
 
@@ -39,6 +39,7 @@ Một Telegram Bot cá nhân viết bằng TypeScript, đóng vai trò client/co
 - `/logs` - 20 dòng log gần nhất.
 - `/history` - 20 sự kiện gần nhất (webhook + lệnh emergency/two-factor đã chạy).
 - `/auth test <password>` - kiểm tra thử một mật khẩu có đúng `EMERGENCY_PASSWORD` không.
+- `/help` - xem toàn bộ danh sách lệnh (đầy đủ hơn README, luôn khớp với code hiện tại).
 - `/notify on|off|test` - bật/tắt/test thông báo chủ động từ bot.
 - `/blacklist add|remove <bundleId>|list` - quản lý app bị chặn (độc lập với Focus).
 - `/focus on|off|status|remaining|extend <d>|cancel` - bật/tắt Focus Mode thủ công hoặc theo thời lượng (`/focus 90m`, `/focus 2h`).
