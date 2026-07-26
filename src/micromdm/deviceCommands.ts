@@ -254,6 +254,10 @@ export class DeviceCommands {
 \t\t<integer>${iTunesStoreID}</integer>
 \t\t<key>ManagementFlags</key>
 \t\t<integer>1</integer>
+\t\t<key>InstallAsManaged</key>
+\t\t<true/>
+\t\t<key>ChangeManagementState</key>
+\t\t<string>Managed</string>
 \t</dict>
 \t<key>CommandUUID</key>
 \t<string>${commandUUID}</string>
