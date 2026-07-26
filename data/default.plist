@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>PayloadContent</key>
+	<array>
+		<dict>
+			<key>PayloadDisplayName</key>
+			<string>Restrictions</string>
+			<key>PayloadIdentifier</key>
+			<string>com.apple.applicationaccess.d30d8a2f-e794-49fa-921d-caa4512c6179</string>
+			<key>PayloadType</key>
+			<string>com.apple.applicationaccess</string>
+			<key>PayloadUUID</key>
+			<string>d30d8a2f-e794-49fa-921d-caa4512c6179</string>
+			<key>PayloadVersion</key>
+			<integer>1</integer>
+			<key>allowDeprecatedWebKitTLS</key>
+			<true/>
+			<key>allowEraseContentAndSettings</key>
+			<false/>
+			<key>allowHostPairing</key>
+			<false/>
+			<key>forceLimitAdTracking</key>
+			<true/>
+			<key>forcePreserveESIMOnErase</key>
+			<true/>
+			<key>safariForceFraudWarning</key>
+			<true/>
+		</dict>
+	</array>
+	<key>PayloadDisplayName</key>
+	<string>MDM Default Profile</string>
+	<key>PayloadIdentifier</key>
+	<string>com.blam.restrictions.default</string>
+	<key>PayloadType</key>
+	<string>Configuration</string>
+	<key>PayloadUUID</key>
+	<string>be635f9d-c5c1-41db-a7f8-2aaab3e00357</string>
+	<key>PayloadVersion</key>
+	<integer>1</integer>
+</dict>
+</plist>

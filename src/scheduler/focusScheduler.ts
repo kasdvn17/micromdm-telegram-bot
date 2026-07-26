@@ -5,12 +5,25 @@ import { getLogger } from "../utils/logger";
 
 type ExpireCallback = () => Promise<void>;
 type RecurringTriggerCallback = (action: "start" | "end") => Promise<void>;
+type BreakExpireCallback = () => Promise<void>;
+
+function todayDateStr(now: Date): string {
+  return now.toISOString().slice(0, 10);
+}
+
+function hhmmOf(now: Date): string {
+  return `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
+}
 
 /**
  * Quản lý focus schedule (duration-based + recurring), lưu JSON, dùng
  * setInterval "tick" mỗi phút để kiểm tra thay vì 1 setTimeout riêng cho
  * mỗi schedule - đơn giản hoá việc restore state sau khi restart process
  * (không cần re-tính lại timer chính xác từng ms).
+ *
+ * Hỗ trợ /focus break <time> (tạm ngưng Focus trong lúc đang ở khung giờ
+ * recurring, tự bật lại khi hết giờ break) và /focus schedule skip (bỏ qua
+ * occurrence của schedule trong NGÀY HÔM NAY, tự hết hiệu lực sang ngày mới).
  */
 export class FocusScheduler {
   private tickHandle: NodeJS.Timeout | null = null;
@@ -19,7 +32,8 @@ export class FocusScheduler {
   constructor(
     private readonly filePath: string,
     private readonly onDurationExpire: ExpireCallback,
-    private readonly onRecurringTrigger: RecurringTriggerCallback
+    private readonly onRecurringTrigger: RecurringTriggerCallback,
+    private readonly onBreakExpire: BreakExpireCallback
   ) {}
 
   start(tickIntervalMs = 60_000): void {
@@ -90,7 +104,7 @@ export class FocusScheduler {
     const state = this.readState();
     const remaining = state.schedules.filter((s) => s.type !== "duration");
     if (remaining.length !== state.schedules.length) {
-      this.writeState({ schedules: remaining });
+      this.writeState({ ...state, schedules: remaining });
     }
   }
 
@@ -120,6 +134,88 @@ export class FocusScheduler {
         (s) => s.type === "duration" && s.endAt && new Date(s.endAt).getTime() > now
       ) ?? null
     );
+  }
+
+  /**
+   * Recurring schedule đang thật sự "active" NGAY LÚC NÀY: enabled, đúng
+   * ngày trong tuần, đang trong khung giờ start-end, và KHÔNG bị skip hôm
+   * nay. Không quan tâm break - dùng activeRecurringSchedule() nếu cần biết
+   * cả trạng thái break.
+   */
+  scheduleWindowToday(now: Date = new Date()): FocusSchedule | null {
+    const dateStr = todayDateStr(now);
+    const hhmm = hhmmOf(now);
+    const dow = now.getDay();
+
+    return (
+      this.readState().schedules.find((s) => {
+        if (s.type !== "recurring" || !s.enabled || !s.recurring) return false;
+        if (!s.recurring.daysOfWeek.includes(dow)) return false;
+        if (s.recurring.skippedDate === dateStr) return false;
+        const { startTime, endTime } = s.recurring;
+        if (startTime >= endTime) return false; // chưa hỗ trợ khung giờ qua đêm
+        return startTime <= hhmm && hhmm < endTime;
+      }) ?? null
+    );
+  }
+
+  /** true nếu hiện tại đang trong 1 khung giờ recurring active (chưa tính break). */
+  isWithinScheduleWindowToday(now: Date = new Date()): boolean {
+    return this.scheduleWindowToday(now) !== null;
+  }
+
+  isOnBreak(now: Date = new Date()): boolean {
+    const state = this.readState();
+    return !!state.breakUntil && new Date(state.breakUntil).getTime() > now.getTime();
+  }
+
+  breakRemainingMs(now: Date = new Date()): number | null {
+    const state = this.readState();
+    if (!state.breakUntil) return null;
+    return Math.max(0, new Date(state.breakUntil).getTime() - now.getTime());
+  }
+
+  /** Bắt đầu tạm ngưng Focus trong `ms` - CHỈ hợp lệ khi đang trong 1 khung
+   *  giờ recurring active (caller phải tự kiểm tra trước khi gọi). */
+  startBreak(ms: number): void {
+    const state = this.readState();
+    state.breakUntil = new Date(Date.now() + ms).toISOString();
+    this.writeState(state);
+  }
+
+  clearBreak(): void {
+    const state = this.readState();
+    if (state.breakUntil) {
+      delete state.breakUntil;
+      this.writeState(state);
+    }
+  }
+
+  /**
+   * Skip occurrence HÔM NAY của 1 recurring schedule. Nếu không truyền
+   * `scheduleId`, tự tìm schedule khớp ngày hôm nay (ưu tiên cái đang active,
+   * nếu không có thì cái sắp tới trong ngày). Trả về schedule đã skip, hoặc
+   * null nếu không tìm thấy schedule nào phù hợp.
+   */
+  skipToday(scheduleId?: string, now: Date = new Date()): FocusSchedule | null {
+    const state = this.readState();
+    const dateStr = todayDateStr(now);
+    const dow = now.getDay();
+
+    let target: FocusSchedule | undefined;
+    if (scheduleId) {
+      target = state.schedules.find((s) => s.id === scheduleId && s.type === "recurring");
+    } else {
+      target =
+        state.schedules.find(
+          (s) => s.type === "recurring" && s.enabled && s.recurring?.daysOfWeek.includes(dow)
+        ) ?? undefined;
+    }
+    if (!target?.recurring) return null;
+
+    target.recurring.skippedDate = dateStr;
+    this.writeState(state);
+    return target;
   }
 
   private setRecurringEnabled(scheduleId: string, enabled: boolean): void {
@@ -154,17 +250,31 @@ export class FocusScheduler {
       stillValid.push(schedule);
     }
     if (stillValid.length !== state.schedules.length) {
-      this.writeState({ schedules: stillValid });
+      this.writeState({ ...state, schedules: stillValid });
     }
 
-    // 2. Xử lý recurring
-    const dateStr = now.toISOString().slice(0, 10);
-    const hhmm = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
+    // 2. Xử lý break hết hạn - nếu vẫn còn trong khung giờ recurring, tự bật lại
+    if (state.breakUntil && new Date(state.breakUntil).getTime() <= now.getTime()) {
+      this.clearBreak();
+      if (this.isWithinScheduleWindowToday(now)) {
+        getLogger().info("[focusScheduler] Break hết hạn, vẫn trong khung giờ - tự bật lại Focus");
+        try {
+          await this.onBreakExpire();
+        } catch (err) {
+          getLogger().error("[focusScheduler] onBreakExpire lỗi", { error: (err as Error).message });
+        }
+      }
+    }
+
+    // 3. Xử lý recurring start/end
+    const dateStr = todayDateStr(now);
+    const hhmm = hhmmOf(now);
     const dow = now.getDay();
 
     for (const schedule of stillValid) {
       if (schedule.type !== "recurring" || !schedule.enabled || !schedule.recurring) continue;
       if (!schedule.recurring.daysOfWeek.includes(dow)) continue;
+      if (schedule.recurring.skippedDate === dateStr) continue; // bị skip hôm nay - không fire start/end
 
       const startKey = `${schedule.id}:${dateStr}:start`;
       const endKey = `${schedule.id}:${dateStr}:end`;
@@ -175,6 +285,7 @@ export class FocusScheduler {
       }
       if (schedule.recurring.endTime === hhmm && !this.firedRecurringToday.has(endKey)) {
         this.firedRecurringToday.add(endKey);
+        this.clearBreak(); // hết ngày làm việc thì break (nếu có) cũng hết ý nghĩa
         await this.onRecurringTrigger("end");
       }
     }
@@ -189,44 +300,38 @@ export class FocusScheduler {
   }
 
   /**
-   * BUG CŨ (liên quan): tick() chỉ trigger recurring đúng vào phút
-   * startTime/endTime khớp tuyệt đối. Nếu process restart giữa chừng 1 khung
-   * giờ đang bật (vd restart lúc 14:00 với schedule 06:00-23:00), sẽ không có
-   * gì bắt Focus bật lại - phải đợi tới đúng 06:00 hôm sau. Hàm này chạy 1 lần
-   * lúc start() để đồng bộ lại: nếu hiện tại đang nằm trong 1 recurring-window
-   * đang enabled, fire "start" ngay lập tức và đánh dấu coi như đã fired hôm
-   * nay (tránh fire trùng lúc đúng phút startTime nếu server đã chạy sẵn).
+   * tick() chỉ trigger recurring đúng vào phút startTime/endTime khớp tuyệt
+   * đối. Nếu process restart giữa chừng 1 khung giờ đang bật (vd restart lúc
+   * 14:00 với schedule 06:00-23:00), sẽ không có gì bắt Focus bật lại - phải
+   * đợi tới đúng 06:00 hôm sau. Hàm này chạy 1 lần lúc start() để đồng bộ
+   * lại: nếu hiện tại đang nằm trong 1 recurring-window đang enabled và
+   * KHÔNG bị skip hôm nay và KHÔNG đang break, fire "start" ngay lập tức.
    * Chỉ hỗ trợ khung giờ trong-ngày (startTime < endTime) như 06:00-23:00 -
    * chưa xử lý khung giờ qua đêm (vd 22:00-06:00).
    */
   private async reconcileOnStart(): Promise<void> {
-    const state = this.readState();
     const now = new Date();
-    const hhmm = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
-    const dateStr = now.toISOString().slice(0, 10);
-    const dow = now.getDay();
+    const dateStr = todayDateStr(now);
+    const schedule = this.scheduleWindowToday(now);
 
-    for (const schedule of state.schedules) {
-      if (schedule.type !== "recurring" || !schedule.enabled || !schedule.recurring) continue;
-      if (!schedule.recurring.daysOfWeek.includes(dow)) continue;
-
-      const { startTime, endTime } = schedule.recurring;
-      if (startTime >= endTime) continue; // chưa hỗ trợ khung giờ qua đêm
-
-      const withinWindow = startTime <= hhmm && hhmm < endTime;
-      if (!withinWindow) continue;
-
+    if (schedule) {
       this.firedRecurringToday.add(`${schedule.id}:${dateStr}:start`);
-      getLogger().info(
-        "[focusScheduler] Reconcile lúc khởi động: đang trong khung giờ recurring, bật lại Focus",
-        { id: schedule.id, hhmm }
-      );
-      try {
-        await this.onRecurringTrigger("start");
-      } catch (err) {
-        getLogger().error("[focusScheduler] reconcileOnStart lỗi", {
-          error: (err as Error).message,
-        });
+      if (!this.isOnBreak(now)) {
+        getLogger().info(
+          "[focusScheduler] Reconcile lúc khởi động: đang trong khung giờ recurring, bật lại Focus",
+          { id: schedule.id }
+        );
+        try {
+          await this.onRecurringTrigger("start");
+        } catch (err) {
+          getLogger().error("[focusScheduler] reconcileOnStart lỗi", {
+            error: (err as Error).message,
+          });
+        }
+      } else {
+        getLogger().info(
+          "[focusScheduler] Reconcile lúc khởi động: đang trong khung giờ nhưng đang break - không bật lại"
+        );
       }
     }
 

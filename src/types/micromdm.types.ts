@@ -15,7 +15,24 @@ export type MdmRequestType =
   | "InstallApplication"
   | "RemoveApplication"
   | "InstalledApplicationList"
+  | "ProfileList"
+  | "ActivationLockBypassCode"
   | "Settings";
+
+/**
+ * 1 item trong response của command "ProfileList" - theo Apple MDM Protocol
+ * Reference (đã verify qua "Inside Apple's MDM Black Box" + support.apple.com):
+ * mỗi item mô tả TOÀN BỘ 1 profile đã cài (không phải 1 payload con bên trong).
+ */
+export interface ProfileListItem {
+  identifier: string;
+  displayName?: string;
+  isEncrypted?: boolean;
+  hasRemovalPasscode?: boolean;
+  removalDisallowed?: boolean;
+  /** Số payload con bên trong PayloadContent - không list chi tiết từng field để tránh tin nhắn quá dài. */
+  payloadCount: number;
+}
 
 /** Payload chung gửi lên MicroMDM /v1/commands */
 export interface MdmCommandPayload {

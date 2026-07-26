@@ -3,31 +3,34 @@ import { AppEvent } from "../types/event.types";
 import { NotificationServiceApi } from "../services/notificationService";
 
 /**
- * Các loại event KHÔNG được notify mặc định (heartbeat / check-in thuần tuý
- * không kèm thay đổi trạng thái) - theo yêu cầu gốc "Ignore heartbeat-only events".
+ * Đã rollback: KHÔNG lọc heartbeat nữa - mọi event đều được notify.
  */
-const SUPPRESSED_TYPES = new Set<AppEvent["type"]>(["heartbeat"]);
+function shouldNotify(_event: AppEvent): boolean {
+  return true;
+}
 
-/**
- * marklost.* LUÔN được gửi bất kể có nằm trong danh sách suppress hay không -
- * đây là ngoại lệ tường minh theo yêu cầu: khi /mark lost bật, muốn nhận cả
- * heartbeat để biết máy còn bật/tắt.
- */
-function shouldNotify(event: AppEvent): boolean {
-  if (event.type.startsWith("marklost.")) return true;
-  return !SUPPRESSED_TYPES.has(event.type);
+function truncateJson(details: Record<string, unknown> | undefined, maxLen = 800): string {
+  if (!details || Object.keys(details).length === 0) return "";
+  const json = JSON.stringify(details, null, 2);
+  return json.length > maxLen ? `${json.slice(0, maxLen)}\n... (đã cắt bớt)` : json;
 }
 
 function formatEvent(event: AppEvent): string {
   switch (event.type) {
     case "device.enrolled":
       return `📱 Thiết bị đã enroll: ${event.deviceUUID}`;
-    case "device.checkin":
-      return `✅ Check-in: ${event.requestType}`;
+    case "device.checkin": {
+      const details = truncateJson(event.details);
+      return `✅ Check-in: ${event.requestType}${details ? `\n\`\`\`\n${details}\n\`\`\`` : ""}`;
+    }
+    case "device.heartbeat":
+      return `💓 Check-in định kỳ (heartbeat): ${event.requestType}`;
     case "device.online":
       return `🟢 Thiết bị online`;
-    case "device.offline":
-      return `🔴 Thiết bị offline`;
+    case "device.offline": {
+      const details = truncateJson(event.details);
+      return `🔴 Thiết bị offline${details ? `\n\`\`\`\n${details}\n\`\`\`` : ""}`;
+    }
     case "profile.installed":
       return `📄 Profile đã cài: ${event.identifier}`;
     case "profile.removed":
@@ -36,6 +39,10 @@ function formatEvent(event: AppEvent): string {
       return `🎯 Focus mode: BẬT${event.durationMs ? ` (${Math.round(event.durationMs / 60000)} phút)` : ""}`;
     case "focus.disabled":
       return `🎯 Focus mode: TẮT`;
+    case "focus.break.started":
+      return `⏸️ Focus tạm ngưng (break) trong ${Math.round(event.durationMs / 60000)} phút, sẽ tự bật lại nếu vẫn còn trong khung giờ schedule.`;
+    case "focus.schedule.skipped":
+      return `⏭️ Đã skip schedule [${event.scheduleId.slice(0, 8)}] cho hôm nay.`;
     case "safe.enabled":
       return `🛡️ Safe mode: BẬT (vô thời hạn)`;
     case "safe.disabled":
@@ -78,8 +85,6 @@ function formatEvent(event: AppEvent): string {
       } (id=${event.telegramId})`;
     case "api.command.executed":
       return `🔧 /api "${event.commandName}" thực thi bởi @${event.telegramUsername} (confirmed=${event.confirmed})`;
-    case "heartbeat":
-      return `💓 heartbeat`;
     default:
       return `ℹ️ Event: ${JSON.stringify(event)}`;
   }

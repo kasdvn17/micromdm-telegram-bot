@@ -3,6 +3,8 @@ import { MicroMdmClient } from "../micromdm/client";
 import { MicroMdmWebhookEvent } from "../types/micromdm.types";
 import { EventBus } from "../events/eventBus";
 import { ActivationLockServiceApi } from "../services/activationLockService";
+import { DefaultProfileServiceApi } from "../services/defaultProfileService";
+import { isRepeatCheckin } from "./checkinDedup";
 import { getLogger } from "../utils/logger";
 import { readJsonState, writeJsonState } from "../utils/jsonStore";
 
@@ -13,6 +15,9 @@ export interface WebhookServerOptions {
    *  (MicroMDM KHÔNG có topic "mdm.Enrollment" riêng - đây là cách chính thức
    *  được khuyến nghị, theo repo mẫu micromdm-webhook-blueprints). */
   seenDevicesFilePath: string;
+  /** File lưu hash raw_payload lần check-in gần nhất, dùng để phát hiện
+   *  check-in "heartbeat" (lặp lại, không có gì mới) - xem enrollment/checkinDedup.ts */
+  checkinStateFilePath: string;
 }
 
 interface SeenDevicesState {
@@ -41,12 +46,21 @@ interface SeenDevicesState {
  *  4. mdm.CheckOut -> publish device.offline
  *
  * Đây là nơi duy nhất parse webhook payload; các module khác không tự parse.
+ *
+ * Về lọc "heartbeat" (yêu cầu bổ sung): mdm.TokenUpdate LẶP LẠI mà raw_payload
+ * đã decode giống HỆT lần gần nhất (theo hash, xem checkinDedup.ts) được coi
+ * là heartbeat thuần tuý (chỉ re-register push token, không có gì mới) và
+ * publish qua "device.heartbeat" (notifyBridge lọc khỏi Telegram, historyLogger
+ * vẫn ghi đầy đủ). Mọi check-in KHÁC (Authenticate, TokenUpdate lần đầu/có thay
+ * đổi thật, CheckOut) publish qua "device.checkin" kèm raw_payload ĐÃ DECODE
+ * trong field `details` để notifyBridge gửi kèm Telegram.
  */
 export function startWebhookServer(
   options: WebhookServerOptions,
   client: MicroMdmClient,
   bus: EventBus,
-  activationLockService: ActivationLockServiceApi
+  activationLockService: ActivationLockServiceApi,
+  defaultProfileService: DefaultProfileServiceApi
 ): http.Server {
   const server = http.createServer((req, res) => {
     if (req.method !== "POST") {
@@ -61,7 +75,7 @@ export function startWebhookServer(
 
     req.on("end", () => {
       res.writeHead(200).end();
-      void handleWebhookBody(body, options, client, bus, activationLockService);
+      void handleWebhookBody(body, options, client, bus, activationLockService, defaultProfileService);
     });
   });
 
@@ -87,7 +101,8 @@ async function handleWebhookBody(
   options: WebhookServerOptions,
   client: MicroMdmClient,
   bus: EventBus,
-  activationLockService: ActivationLockServiceApi
+  activationLockService: ActivationLockServiceApi,
+  defaultProfileService: DefaultProfileServiceApi
 ): Promise<void> {
   let event: MicroMdmWebhookEvent;
   try {
@@ -104,22 +119,48 @@ async function handleWebhookBody(
       const ci = event.checkin_event;
       if (!ci || ci.udid !== options.deviceUUID) break;
 
+      const decoded = ci.raw_payload ? client.decodeBase64Plist(ci.raw_payload) : {};
+
       // TokenUpdate lần đầu (push token vừa đăng ký) ~= enrollment vừa hoàn tất.
       // Đây là cách MicroMDM chính thức khuyến nghị để phát hiện enroll mới,
       // vì không có topic "mdm.Enrollment" riêng.
-      if (isNewDevice(options.seenDevicesFilePath, ci.udid)) {
+      const isNew = isNewDevice(options.seenDevicesFilePath, ci.udid);
+      if (isNew) {
         await activationLockService.handleEnrollment(ci.udid);
+        await defaultProfileService.installOnEnrollment(ci.udid);
       }
 
-      bus.publish({ type: "device.checkin", deviceUUID: ci.udid, requestType: event.topic });
-      bus.publish({ type: "device.online" });
+      // isNew luôn coi là "có gì đó mới" (bỏ qua so sánh hash) - còn lại so
+      // khớp hash với lần check-in gần nhất để phát hiện heartbeat thuần tuý.
+      const isHeartbeat = !isNew && isRepeatCheckin(options.checkinStateFilePath, ci.udid, decoded);
+
+      if (isHeartbeat) {
+        bus.publish({ type: "device.heartbeat", deviceUUID: ci.udid, requestType: event.topic });
+      } else {
+        bus.publish({
+          type: "device.checkin",
+          deviceUUID: ci.udid,
+          requestType: event.topic,
+          details: decoded,
+        });
+        bus.publish({ type: "device.online" });
+      }
       break;
     }
 
     case "mdm.Authenticate": {
       const ci = event.checkin_event;
       if (!ci || ci.udid !== options.deviceUUID) break;
-      bus.publish({ type: "device.checkin", deviceUUID: ci.udid, requestType: event.topic });
+      // Authenticate chỉ xảy ra ở bước đầu handshake enrollment/re-enrollment
+      // (không xảy ra định kỳ như TokenUpdate) - luôn coi là có ý nghĩa, không
+      // áp dụng lọc heartbeat, luôn đính kèm raw_payload đã decode.
+      const decoded = ci.raw_payload ? client.decodeBase64Plist(ci.raw_payload) : {};
+      bus.publish({
+        type: "device.checkin",
+        deviceUUID: ci.udid,
+        requestType: event.topic,
+        details: decoded,
+      });
       bus.publish({ type: "device.online" });
       break;
     }
@@ -127,7 +168,8 @@ async function handleWebhookBody(
     case "mdm.CheckOut": {
       const ci = event.checkin_event;
       if (!ci || ci.udid !== options.deviceUUID) break;
-      bus.publish({ type: "device.offline" });
+      const decoded = ci.raw_payload ? client.decodeBase64Plist(ci.raw_payload) : undefined;
+      bus.publish({ type: "device.offline", details: decoded });
       break;
     }
 

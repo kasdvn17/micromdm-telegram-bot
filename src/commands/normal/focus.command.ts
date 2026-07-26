@@ -23,9 +23,20 @@ export function createFocusCommand(focusService: FocusServiceApi): CommandDefini
 
         case "status": {
           const status = focusService.status();
+          if (status.onBreak) {
+            return `🎯 Focus đang TẠM NGƯNG (break) - còn ${formatDuration(status.breakRemainingMs ?? 0)}, sẽ tự bật lại nếu vẫn trong khung giờ schedule.`;
+          }
+          const scheduleNote = status.withinSchedule ? " (theo schedule)" : "";
           return status.active
-            ? `🎯 Focus đang BẬT${status.remainingMs ? ` - còn ${formatDuration(status.remainingMs)}` : ""}`
+            ? `🎯 Focus đang BẬT${scheduleNote}${status.remainingMs ? ` - còn ${formatDuration(status.remainingMs)}` : ""}`
             : "🎯 Focus đang TẮT.";
+        }
+
+        case "break": {
+          const durationArg = rest[0] ?? "15m";
+          const ms = parseDurationToMs(durationArg);
+          await focusService.breakFocus(ms);
+          return `⏸️ Đã tạm ngưng Focus trong ${formatDuration(ms)}. Sẽ tự bật lại nếu vẫn còn trong khung giờ schedule.`;
         }
 
         case "remaining": {
@@ -83,8 +94,13 @@ export function createFocusCommand(focusService: FocusServiceApi): CommandDefini
             else focusService.disableRecurring(scheduleId);
             return `📋 Schedule ${scheduleId} đã ${scheduleAction === "enable" ? "bật" : "tắt"}.`;
           }
+          if (scheduleAction === "skip") {
+            const scheduleId = rest[1]; // optional - không truyền thì tự tìm schedule của hôm nay
+            const skipped = await focusService.skipToday(scheduleId);
+            return `⏭️ Đã bỏ qua schedule [${skipped.id.slice(0, 8)}] cho HÔM NAY. Sẽ tự hoạt động lại bình thường từ ngày mai.`;
+          }
           throw new ValidationError(
-            "Cú pháp: /focus schedule list|add <start> <end> [days]|enable <id>|disable <id>\n" +
+            "Cú pháp: /focus schedule list|add <start> <end> [days]|enable <id>|disable <id>|skip [id]\n" +
               'Vd: /focus schedule add 06:00 23:00 (mặc định tất cả các ngày, hoặc truyền "1,2,3,4,5" cho T2-T6, 0=CN)'
           );
         }
@@ -116,7 +132,7 @@ export function createFocusCommand(focusService: FocusServiceApi): CommandDefini
 
         default: {
           // không match subcommand nào -> thử parse như duration, vd "/focus 90m"
-          if (!sub) throw new ValidationError("Cú pháp: /focus on|off|status|remaining|extend <d>|cancel|schedule|blockadd|blockremove|blocklist ...");
+          if (!sub) throw new ValidationError("Cú pháp: /focus on|off|status|remaining|extend <d>|cancel|break [d]|schedule|blockadd|blockremove|blocklist ...");
           const ms = parseDurationToMs(sub);
           await focusService.enable(ms);
           return `🎯 Focus mode đã BẬT trong ${formatDuration(ms)}.`;

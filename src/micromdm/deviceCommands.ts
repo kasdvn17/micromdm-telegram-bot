@@ -6,6 +6,7 @@ import {
   LocationInfo,
   MdmCommandQueuedResult,
   MdmCommandResult,
+  ProfileListItem,
 } from "../types/micromdm.types";
 
 function escapeXml(value: string): string {
@@ -191,6 +192,52 @@ export class DeviceCommands {
 
   removeProfile(profileIdentifier: string): Promise<MdmCommandQueuedResult> {
     return this.client.removeProfile(this.deviceUUID, profileIdentifier);
+  }
+
+  /**
+   * ProfileList - liệt kê toàn bộ Configuration Profile đang cài trên máy.
+   * Không cần field bổ sung nào ngoài request_type (giống EraseDevice/DisableLostMode),
+   * nên dùng JSON schema thường của MicroMDM thay vì raw plist.
+   * Theo Apple MDM Protocol Reference, response bọc trong key "ProfileList",
+   * mỗi item mô tả 1 profile với PayloadIdentifier/PayloadDisplayName ở top-level
+   * (không nằm trong PayloadContent - đó là các payload CON bên trong profile đó).
+   */
+  async listProfiles(): Promise<ProfileListItem[]> {
+    const result: MdmCommandResult = await this.client.sendCommandAndWait({
+      udid: this.deviceUUID,
+      request_type: "ProfileList",
+    });
+    const raw = result.raw ?? {};
+    const list = (raw["ProfileList"] as Array<Record<string, unknown>>) ?? [];
+    return list.map((item) => {
+      const payloadContent = (item["PayloadContent"] as Array<unknown>) ?? [];
+      return {
+        identifier: String(item["PayloadIdentifier"] ?? ""),
+        displayName: item["PayloadDisplayName"] as string | undefined,
+        isEncrypted: item["IsEncrypted"] as boolean | undefined,
+        hasRemovalPasscode: item["HasRemovalPasscode"] as boolean | undefined,
+        removalDisallowed: item["PayloadRemovalDisallowed"] as boolean | undefined,
+        payloadCount: payloadContent.length,
+      };
+    });
+  }
+
+  /**
+   * ActivationLockBypassCode - lấy mã bypass Activation Lock của thiết bị.
+   * ⚠️ CỰC KỲ NHẠY CẢM: ai có mã này có thể gỡ Activation Lock (chống trộm) của
+   * máy vĩnh viễn mà không cần Apple ID/mật khẩu. Chỉ expose qua /api (Two-Factor
+   * tier, yêu cầu cả username lẫn mật khẩu) - KHÔNG tạo command tier thấp hơn cho việc này.
+   * Chỉ hoạt động khi máy Supervised VÀ đã bật Activation Lock qua MDM (`/api ... EnableActivationLock`
+   * tương đương chức năng `enableActivationLock()` ở trên, tự động chạy khi enroll) - nếu chưa
+   * từng bật hoặc Find My chưa từng được user bật trên máy, response có thể không có "BypassCode".
+   */
+  async getActivationLockBypassCode(): Promise<string | undefined> {
+    const result: MdmCommandResult = await this.client.sendCommandAndWait({
+      udid: this.deviceUUID,
+      request_type: "ActivationLockBypassCode",
+    });
+    const raw = result.raw ?? {};
+    return raw["BypassCode"] as string | undefined;
   }
 
   /**

@@ -30,8 +30,8 @@ interface PendingCommand {
  * Lưu ý quan trọng về mô hình async của MDM protocol: khi queue 1 command
  * qua POST /v1/commands, MicroMDM chỉ trả về command_uuid ngay lập tức -
  * đó KHÔNG phải là kết quả thực thi trên thiết bị. Kết quả thật (Acknowledged/
- * Error/NotNow) chỉ đến sau, qua webhook `mdm.Acknowledge` mà MicroMDM gọi
- * ngược lại vào server này (xem enrollment/webhookServer.ts).
+ * Error/NotNow) chỉ đến sau, qua webhook `mdm.Connect` (payload `acknowledge_event`)
+ * mà MicroMDM gọi ngược lại vào server này (xem enrollment/webhookServer.ts).
  *
  * Class này cung cấp `sendCommandAndWait()` để "giả lập" hành vi đồng bộ:
  * queue command, rồi chờ webhook Acknowledge tương ứng tới (khớp theo

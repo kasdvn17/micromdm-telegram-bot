@@ -14,6 +14,7 @@ import { createMarkLostService } from "./services/markLostService";
 import { createBlacklistService } from "./services/blacklistService";
 import { createDeviceInfoService } from "./services/deviceInfoService";
 import { createActivationLockService } from "./services/activationLockService";
+import { createDefaultProfileService } from "./services/defaultProfileService";
 import { createAppManagementService } from "./services/appManagementService";
 import { FocusScheduler } from "./scheduler/focusScheduler";
 import { createMarkLostPoller } from "./scheduler/markLostPoller";
@@ -44,6 +45,7 @@ import {
   createListAppsCommand,
   createRemoveAppCommand,
 } from "./commands/emergency/app.command";
+import { createListProfilesCommand, createRemoveProfileCommand, createInstallProfileCommand } from "./commands/emergency/profile.command";
 
 async function main(): Promise<void> {
   // 1. Config - fail-fast nếu thiếu biến môi trường
@@ -86,11 +88,19 @@ async function main(): Promise<void> {
     () => handleFocusExpire(deviceCommands, bus),
     async (action: "start" | "end") => {
       if (!focusServiceRef) return;
+      // Dùng scheduleActivate/scheduleDeactivate (KHÔNG phải enable/disable
+      // công khai) vì enable/disable giờ bị chặn khi đang trong khung giờ
+      // schedule - chính scheduler mới là nguồn gọi hợp lệ duy nhất ở đây.
       if (action === "start") {
-        await focusServiceRef.enable();
+        await focusServiceRef.scheduleActivate();
       } else {
-        await focusServiceRef.disable();
+        await focusServiceRef.scheduleDeactivate();
       }
+    },
+    async () => {
+      // Break hết hạn, scheduler đã tự kiểm tra vẫn còn trong khung giờ mới gọi tới đây
+      if (!focusServiceRef) return;
+      await focusServiceRef.scheduleActivate();
     }
   );
 
@@ -123,6 +133,11 @@ async function main(): Promise<void> {
   const deviceInfoService = createDeviceInfoService(deviceCommands, deviceInfoPoller);
 
   const activationLockService = createActivationLockService(deviceCommands, bus);
+  const defaultProfileService = createDefaultProfileService(
+    deviceCommands,
+    config.constants.defaultProfilePlistPath,
+    bus
+  );
   const appManagementService = createAppManagementService(deviceCommands, bus);
 
   // 6. Event subscribers
@@ -135,10 +150,12 @@ async function main(): Promise<void> {
       port: config.constants.webhookPort,
       deviceUUID: config.constants.deviceUUID,
       seenDevicesFilePath: "./data/seen-devices.json",
+      checkinStateFilePath: config.constants.checkinStateFilePath,
     },
     microMdmClient,
     bus,
-    activationLockService
+    activationLockService,
+    defaultProfileService
   );
 
   // 8. Đăng ký toàn bộ command
@@ -161,6 +178,9 @@ async function main(): Promise<void> {
     createInstallAppCommand(appManagementService),
     createListAppsCommand(appManagementService),
     createRemoveAppCommand(appManagementService),
+    createListProfilesCommand(deviceCommands),
+    createRemoveProfileCommand(deviceCommands),
+    createInstallProfileCommand(deviceCommands, config.constants.dataDir),
   ];
 
   const router = createRouter(

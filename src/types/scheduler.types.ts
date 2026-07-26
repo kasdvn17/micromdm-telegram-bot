@@ -11,12 +11,20 @@ export interface FocusSchedule {
     daysOfWeek: number[]; // 0 = Chủ nhật ... 6 = Thứ bảy
     startTime: string; // "HH:mm", giờ local server
     endTime: string; // "HH:mm"
+    /** "YYYY-MM-DD" - nếu trùng ngày hôm nay thì bỏ qua occurrence của ngày đó
+     *  (đặt bởi /focus schedule skip). Tự hết hiệu lực khi sang ngày khác. */
+    skippedDate?: string;
   };
   enabled: boolean;
 }
 
 export interface SchedulerState {
   schedules: FocusSchedule[];
+  /** ISO timestamp - trong lúc breakUntil > now, Focus bị tạm ngưng dù đang
+   *  trong khung giờ recurring active (đặt bởi /focus break <time>). Tự hết
+   *  hiệu lực khi qua mốc thời gian này - scheduler tick sẽ tự bật lại Focus
+   *  nếu vẫn còn đang trong khung giờ recurring. */
+  breakUntil?: string;
 }
 
 export interface MarkLostState {

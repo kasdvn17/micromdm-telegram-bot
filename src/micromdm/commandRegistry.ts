@@ -29,6 +29,15 @@ const REGISTRY: CommandRegistryEntry[] = [
   { name: "GetDeviceInfo", requiresConfirm: false, handler: (dc) => dc.getDeviceInfo() },
   { name: "EnableLostMode", requiresConfirm: true, handler: (dc, p) => dc.enableLostMode(p[0]) },
   { name: "DisableLostMode", requiresConfirm: false, handler: (dc) => dc.disableLostMode() },
+  { name: "ListProfiles", requiresConfirm: false, handler: (dc) => dc.listProfiles() },
+  { name: "RemoveProfile", requiresConfirm: true, handler: (dc, p) => dc.removeProfile(p[0]) },
+  {
+    // Cực nhạy cảm (xem cảnh báo tại deviceCommands.getActivationLockBypassCode) -
+    // luôn bắt buộc CONFIRM dù đã ở Two-Factor tier.
+    name: "GetActivationLockBypassCode",
+    requiresConfirm: true,
+    handler: (dc) => dc.getActivationLockBypassCode(),
+  },
   {
     name: "EraseDevice",
     requiresConfirm: true, // nguy hiểm nhất - luôn bắt buộc CONFIRM dù đã two-factor

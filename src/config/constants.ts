@@ -6,6 +6,10 @@ import path from "path";
  * dùng default trong file này.
  */
 export interface AppConstants {
+  /** Thư mục data/ gốc - dùng để resolve file bất kỳ do người dùng chỉ định
+   *  (vd /installprofile <filename> tìm trong đây), tránh mỗi chỗ tự path.resolve riêng. */
+  dataDir: string;
+
   /** UDID của chiếc iPhone duy nhất mà bot điều khiển */
   deviceUUID: string;
 
@@ -32,6 +36,16 @@ export interface AppConstants {
 
   /** Đường dẫn file JSON chứa Bundle ID cho Focus Mode (RestrictedApplications) */
   restrictedAppsFilePath: string;
+
+  /**
+   * Đường dẫn file .plist (mobileconfig XML) chứa profile MẶC ĐỊNH tự động
+   * cài khi phát hiện enrollment mới. Lưu ra file thay vì hardcode trong code
+   * để chỉnh sửa nội dung profile không cần đụng vào source/rebuild.
+   */
+  defaultProfilePlistPath: string;
+
+  /** Đường dẫn file lưu hash raw_payload check-in gần nhất theo UDID (lọc heartbeat) */
+  checkinStateFilePath: string;
 
   /**
    * Port HTTP server nội bộ lắng nghe webhook từ MicroMDM (--webhook-url trỏ vào đây).
@@ -82,6 +96,7 @@ export function loadConstants(env: NodeJS.ProcessEnv = process.env): AppConstant
   }
 
   return {
+    dataDir: DATA_DIR,
     deviceUUID,
     deviceInfoPollIntervalMs: parseIntEnv(
       env.DEVICE_INFO_POLL_INTERVAL_MS,
@@ -98,6 +113,10 @@ export function loadConstants(env: NodeJS.ProcessEnv = process.env): AppConstant
     restrictedAppsFilePath:
       env.RESTRICTED_APPS_FILE_PATH?.trim() ||
       path.join(DATA_DIR, "restricted-apps.json"),
+    defaultProfilePlistPath:
+      env.DEFAULT_PROFILE_PLIST_PATH?.trim() || path.join(DATA_DIR, "default.plist"),
+    checkinStateFilePath:
+      env.CHECKIN_STATE_FILE_PATH?.trim() || path.join(DATA_DIR, "checkin-state.json"),
     webhookPort: parseIntEnv(env.WEBHOOK_PORT, 6364),
     commandResultTimeoutMs: parseIntEnv(env.COMMAND_RESULT_TIMEOUT_MS, 30_000),
   };

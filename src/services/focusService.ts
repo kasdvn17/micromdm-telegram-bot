@@ -13,6 +13,10 @@ import { FocusSchedule } from "../types/scheduler.types";
 export interface FocusStatus {
   active: boolean;
   remainingMs: number | null;
+  /** true nếu hiện tại đang trong khung giờ 1 recurring schedule (bất kể break) */
+  withinSchedule: boolean;
+  onBreak: boolean;
+  breakRemainingMs: number | null;
 }
 
 export interface FocusServiceApi {
@@ -21,6 +25,10 @@ export interface FocusServiceApi {
   status(): FocusStatus;
   extend(ms: number): Promise<void>;
   cancel(): Promise<void>;
+  /** /focus break <time> - tạm ngưng Focus trong lúc đang ở khung giờ recurring active */
+  breakFocus(ms: number): Promise<void>;
+  /** /focus schedule skip [scheduleId] - bỏ qua occurrence của schedule HÔM NAY */
+  skipToday(scheduleId?: string): Promise<FocusSchedule>;
   listSchedules(): FocusSchedule[];
   addRecurringSchedule(daysOfWeek: number[], startTime: string, endTime: string): FocusSchedule;
   enableRecurring(scheduleId: string): void;
@@ -30,6 +38,13 @@ export interface FocusServiceApi {
   addBlockApplication(bundleId: string): Promise<boolean>;
   removeBlockApplication(bundleId: string): Promise<boolean>;
   listBlockApplications(): Promise<string[]>;
+  /**
+   * Chỉ dùng nội bộ bởi main.ts (wiring FocusScheduler's onRecurringTrigger/
+   * onBreakExpire) - KHÔNG expose qua Telegram command. Bỏ qua guard "đang
+   * trong schedule" vì chính scheduler mới là nguồn gọi các hàm này.
+   */
+  scheduleActivate(): Promise<void>;
+  scheduleDeactivate(): Promise<void>;
 }
 
 export function createFocusService(
@@ -65,6 +80,15 @@ export function createFocusService(
   const isFocusOrSafeModeActive = (): boolean =>
     manuallyActive || scheduler.activeDurationSchedule() !== null || safeModeService.isActive();
 
+  const requireNotWithinSchedule = (actionLabel: string): void => {
+    if (scheduler.isWithinScheduleWindowToday()) {
+      throw new ValidationError(
+        `Đang trong khung giờ 1 schedule active nên /focus ${actionLabel} không có tác dụng. ` +
+          `Dùng /focus break <time> để tạm ngưng (mặc định 15 phút), hoặc /focus schedule skip để bỏ qua schedule hôm nay.`
+      );
+    }
+  };
+
   return {
     async enable(durationMs?: number): Promise<void> {
       if (safeModeService.isActive()) {
@@ -72,6 +96,7 @@ export function createFocusService(
           "Safe mode đang bật - dùng /safe off trước khi bật Focus."
         );
       }
+      requireNotWithinSchedule("on");
       // BUG CŨ: enable() tạo schedule mới mà không dọn state cũ, nên gọi
       // /focus <duration> nhiều lần (hoặc /focus on sau khi đã có 1 duration
       // đang chạy) tạo ra NHIỀU duration-schedule cùng tồn tại - status()/
@@ -97,6 +122,7 @@ export function createFocusService(
           "Safe mode đang bật - dùng /safe off để tắt Focus."
         );
       }
+      requireNotWithinSchedule("off");
       // Dọn TOÀN BỘ duration-schedule (không chỉ 1 cái tìm được bởi
       // activeDurationSchedule()) để tránh còn sót schedule "ma" tự hết hạn
       // sau này và bắn thông báo "focus.disabled" giả dù người dùng đã tắt
@@ -109,10 +135,25 @@ export function createFocusService(
 
     status(): FocusStatus {
       const active = scheduler.activeDurationSchedule();
+      const withinSchedule = scheduler.isWithinScheduleWindowToday();
+      const onBreak = scheduler.isOnBreak();
+      const breakRemainingMs = scheduler.breakRemainingMs();
       if (active) {
-        return { active: true, remainingMs: scheduler.remainingMs(active.id) };
+        return {
+          active: true,
+          remainingMs: scheduler.remainingMs(active.id),
+          withinSchedule,
+          onBreak,
+          breakRemainingMs,
+        };
       }
-      return { active: manuallyActive, remainingMs: null };
+      return {
+        active: manuallyActive || (withinSchedule && !onBreak),
+        remainingMs: null,
+        withinSchedule,
+        onBreak,
+        breakRemainingMs,
+      };
     },
 
     async extend(ms: number): Promise<void> {
@@ -124,10 +165,39 @@ export function createFocusService(
     },
 
     async cancel(): Promise<void> {
+      requireNotWithinSchedule("cancel");
       scheduler.cancelAllDurations();
       manuallyActive = false;
       await removeFocusProfile();
       bus.publish({ type: "focus.disabled" });
+    },
+
+    async breakFocus(ms: number): Promise<void> {
+      if (!scheduler.isWithinScheduleWindowToday()) {
+        throw new ValidationError(
+          "Không có schedule nào đang active để break. /focus break chỉ dùng được khi đang trong khung giờ 1 schedule."
+        );
+      }
+      scheduler.startBreak(ms);
+      await removeFocusProfile();
+      bus.publish({ type: "focus.break.started", durationMs: ms });
+    },
+
+    async skipToday(scheduleId?: string): Promise<FocusSchedule> {
+      const wasActive = scheduler.isWithinScheduleWindowToday();
+      const skipped = scheduler.skipToday(scheduleId);
+      if (!skipped) {
+        throw new ValidationError(
+          "Không tìm thấy schedule nào khớp hôm nay để skip. Dùng /focus schedule list để xem danh sách."
+        );
+      }
+      if (wasActive) {
+        scheduler.clearBreak();
+        await removeFocusProfile();
+        bus.publish({ type: "focus.disabled" });
+      }
+      bus.publish({ type: "focus.schedule.skipped", scheduleId: skipped.id });
+      return skipped;
     },
 
     listSchedules(): FocusSchedule[] {
@@ -170,7 +240,17 @@ export function createFocusService(
     },
     async listBlockApplications(): Promise<string[]> {
       return loadFocusBundleIds(restrictedAppsFilePath);
-    }
+    },
+
+    // --- Nội bộ, dùng bởi main.ts wiring FocusScheduler ---
+    async scheduleActivate(): Promise<void> {
+      await installFocusProfile();
+      bus.publish({ type: "focus.enabled" });
+    },
+    async scheduleDeactivate(): Promise<void> {
+      await removeFocusProfile();
+      bus.publish({ type: "focus.disabled" });
+    },
   };
 }
 
