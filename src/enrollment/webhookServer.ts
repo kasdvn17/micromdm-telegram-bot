@@ -142,11 +142,18 @@ async function handleWebhookBody(
           commandUUID: ack.command_uuid,
         });
       } else if (ack.status === "Error") {
+        let parsed: Record<string, unknown> = {};
+        if (ack.raw_payload)
+            parsed = client.decodeBase64Plist(ack.raw_payload);
+        getLogger().error("[webhookServer] MicroMDM báo lỗi khi thực thi command trên thiết bị", {
+          commandUUID: ack.command_uuid,
+          raw: parsed,
+        });
         bus.publish({
           type: "mdm.command.failed",
           command: ack.command_uuid,
           commandUUID: ack.command_uuid,
-          error: "MicroMDM báo lỗi khi thực thi command trên thiết bị",
+          error: `MicroMDM báo lỗi khi thực thi command trên thiết bị: ${JSON.stringify(parsed)}`,
         });
       }
       // status "NotNow" - thiết bị bận, không coi là lỗi, không publish gì thêm

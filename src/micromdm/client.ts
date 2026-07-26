@@ -42,6 +42,18 @@ export class MicroMdmClient {
 
   constructor(private readonly options: MicroMdmClientOptions) {}
 
+  decodeBase64Plist(rawPayloadBase64: string): Record<string, unknown> {
+    try {
+      const xml = Buffer.from(rawPayloadBase64, "base64").toString("utf-8");
+      return parsePlist(xml) as Record<string, unknown>;
+    } catch (err) {
+      getLogger().error("[micromdm] Parse plist raw_payload thất bại", {
+        error: (err as Error).message,
+      });
+      return {};
+    }
+  }
+
   /**
    * Gọi bởi webhookServer khi nhận được sự kiện mdm.Connect (acknowledge_event).
    * `rawPayloadBase64` là base64 của plist XML THẬT mà thiết bị gửi (theo Apple MDM
@@ -58,17 +70,12 @@ export class MicroMdmClient {
     this.pending.delete(commandUUID);
 
     let parsed: Record<string, unknown> = {};
-    if (rawPayloadBase64) {
-      try {
-        const xml = Buffer.from(rawPayloadBase64, "base64").toString("utf-8");
-        parsed = parsePlist(xml) as Record<string, unknown>;
-      } catch (err) {
-        getLogger().error("[micromdm] Parse plist raw_payload thất bại", {
-          commandUUID,
-          error: (err as Error).message,
-        });
-      }
-    }
+    if (rawPayloadBase64)
+      parsed = this.decodeBase64Plist(rawPayloadBase64);
+    getLogger().info(`[micromdm] Acknowledge nhận được ${commandUUID}`, {
+      status,
+      raw: parsed,
+    });
 
     pending.resolve({
       commandUUID,

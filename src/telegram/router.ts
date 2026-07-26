@@ -96,7 +96,15 @@ export function createRouter(
 
     try {
       const reply = await definition.handler(ctx);
-      await bot.sendMessage(message.chatId, reply);
+      // Telegram giới hạn 4096 ký tự cho 1 tin nhắn, nếu reply quá dài thì cắt làm nhiều tin nhắn
+      if (reply.length <= 4096) {
+        await bot.sendMessage(message.chatId, reply);
+      } else {
+        const chunks = reply.match(/.{1,4096}/gs) ?? [];
+        for (const chunk of chunks) {
+          await bot.sendMessage(message.chatId, chunk);
+        }
+      }
     } catch (err) {
       getLogger().error("[router] Command handler lỗi", {
         command: parsed.name,
