@@ -17,3 +17,5 @@ data/logs/bot-latest.log
 
 # Ignore the directory itself
 data/logs
+
+data/history.json
