@@ -16,12 +16,6 @@ export interface Secrets {
   authorizedTelegramUsername: string;
 
   /**
-   * Chat ID của tài khoản Telegram chính chủ, dùng để bot chủ động gửi notification
-   * mà không cần chờ tin nhắn đầu tiên.
-   */
-  authorizedTelegramChatId: number;
-
-  /**
    * Mật khẩu dùng cho:
    *  - Toàn bộ Emergency commands (chỉ cần đúng mật khẩu, không cần đúng username)
    *  - Một trong hai lớp xác thực của lệnh /api (two-factor: username + password)
@@ -45,7 +39,6 @@ export interface Secrets {
 const REQUIRED_ENV_KEYS = [
   "TELEGRAM_BOT_TOKEN",
   "AUTHORIZED_TELEGRAM_USERNAME",
-  "AUTHORIZED_TELEGRAM_CHAT_ID",
   "EMERGENCY_PASSWORD",
   "MICROMDM_URL",
   "MICROMDM_API_KEY",
@@ -81,7 +74,6 @@ export function loadSecrets(env: NodeJS.ProcessEnv = process.env): Secrets {
     authorizedTelegramUsername: env.AUTHORIZED_TELEGRAM_USERNAME!.trim()
       .replace(/^@/, "")
       .toLowerCase(),
-    authorizedTelegramChatId: parseInt(env.AUTHORIZED_TELEGRAM_CHAT_ID!.trim(), 10),
     emergencyPassword: env.EMERGENCY_PASSWORD!,
     microMdmUrl: env.MICROMDM_URL!.trim().replace(/\/+$/, ""),
     microMdmApiKey: env.MICROMDM_API_KEY!.trim(),

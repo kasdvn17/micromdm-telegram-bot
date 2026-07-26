@@ -47,12 +47,6 @@ export interface AppConstants {
    * nhưng chưa xác nhận (device có thể đang offline).
    */
   commandResultTimeoutMs: number;
-
-  /**
-   * URL path MicroMDM sẽ POST vào (ví dụ: "/webhook/micromdm").
-   * Phải khớp với giá trị được set trong --webhook-url của MicroMDM server.
-   */
-  webhookPath: string;
 }
 
 const DEFAULT_DEVICE_INFO_POLL_INTERVAL_MS = 5 * 60 * 1000; // 5 phút
@@ -83,7 +77,7 @@ export function loadConstants(env: NodeJS.ProcessEnv = process.env): AppConstant
   if (markLostPollIntervalMs >= MARK_LOST_MAX_INTERVAL_MS) {
     throw new Error(
       `[config/constants] MARK_LOST_POLL_INTERVAL_MS phải nhỏ hơn ${MARK_LOST_MAX_INTERVAL_MS}ms (2 phút), ` +
-      `hiện tại đang cấu hình ${markLostPollIntervalMs}ms.`
+        `hiện tại đang cấu hình ${markLostPollIntervalMs}ms.`
     );
   }
 
@@ -104,8 +98,7 @@ export function loadConstants(env: NodeJS.ProcessEnv = process.env): AppConstant
     restrictedAppsFilePath:
       env.RESTRICTED_APPS_FILE_PATH?.trim() ||
       path.join(DATA_DIR, "restricted-apps.json"),
-    webhookPort: parseIntEnv(env.WEBHOOK_PORT, 6364),
-    webhookPath: env.WEBHOOK_PATH?.trim() || "/webhook/micromdm",
+    webhookPort: parseIntEnv(env.WEBHOOK_PORT, 8081),
     commandResultTimeoutMs: parseIntEnv(env.COMMAND_RESULT_TIMEOUT_MS, 30_000),
   };
 }

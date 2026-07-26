@@ -4,39 +4,43 @@ import { MicroMdmWebhookEvent } from "../types/micromdm.types";
 import { EventBus } from "../events/eventBus";
 import { ActivationLockServiceApi } from "../services/activationLockService";
 import { getLogger } from "../utils/logger";
-import { parse } from "plist";
+import { readJsonState, writeJsonState } from "../utils/jsonStore";
 
 export interface WebhookServerOptions {
   port: number;
   deviceUUID: string;
-  /**
-   * URL path MicroMDM sẽ POST vào (ví dụ: "/webhook/micromdm").
-   * Phải khớp với giá trị được set trong --webhook-url của MicroMDM server.
-   * Mặc định: "/webhook/micromdm"
-   */
-  webhookPath?: string;
+  /** File lưu danh sách UDID đã từng thấy, dùng để tự phát hiện enrollment MỚI
+   *  (MicroMDM KHÔNG có topic "mdm.Enrollment" riêng - đây là cách chính thức
+   *  được khuyến nghị, theo repo mẫu micromdm-webhook-blueprints). */
+  seenDevicesFilePath: string;
+}
+
+interface SeenDevicesState {
+  udids: string[];
 }
 
 /**
  * HTTP server nội bộ nhận webhook từ MicroMDM (cấu hình MicroMDM chạy với
- * `-webhook-url=http://<host>:<port>/webhook/micromdm`).
+ * `-command-webhook-url=http://<host>:<port>/webhook/micromdm`).
+ *
+ * QUAN TRỌNG: đã verify lại theo docs/user-guide/api-and-webhooks.md của
+ * micromdm/micromdm - chỉ có ĐÚNG 4 topic được expose qua webhook:
+ *   - mdm.Authenticate  -> checkin_event
+ *   - mdm.TokenUpdate   -> checkin_event
+ *   - mdm.CheckOut      -> checkin_event
+ *   - mdm.Connect       -> acknowledge_event  (đây là nơi nhận KẾT QUẢ command)
+ * KHÔNG có "mdm.Enrollment" hay "mdm.Acknowledge" như bản trước đây suy đoán sai.
  *
  * Vai trò:
- *  1. mdm.Authenticate -> gọi activationLockService (bật User-Linked Activation Lock)
- *     khi thiết bị enroll lần đầu. NOTE: mdm.Authenticate là topic enroll thực tế
- *     (không phải "mdm.Enrollment" vốn không tồn tại trong MicroMDM).
- *  2. mdm.Acknowledge -> decode raw_payload (base64 → JSON), resolve pending command
- *     trong MicroMdmClient (kết quả DeviceInformation/DeviceLocation...) + publish
- *     event mdm.command.succeeded/failed.
- *  3. mdm.TokenUpdate -> publish device.checkin + device.online
- *  4. mdm.CheckOut   -> publish device.offline
- *  5. mdm.Connect    -> heartbeat (thiết bị check-in thường xuyên, không thay đổi state)
+ *  1. mdm.TokenUpdate với UDID CHƯA từng thấy -> coi là enrollment mới, gọi
+ *     activationLockService (bật Activation Lock) - vì không có topic riêng.
+ *  2. mdm.Connect -> resolve pending command trong MicroMdmClient (kết quả
+ *     DeviceInformation/DeviceLocation...) + publish event mdm.command.*
+ *  3. mdm.TokenUpdate / mdm.Authenticate (không phải lần đầu) -> publish
+ *     device.checkin (không phải heartbeat thuần, KHÔNG bị lọc khỏi notify)
+ *  4. mdm.CheckOut -> publish device.offline
  *
  * Đây là nơi duy nhất parse webhook payload; các module khác không tự parse.
- *
- * QUAN TRỌNG về raw_payload:
- * MicroMDM encode raw_payload ([]byte) thành base64 khi JSON-marshal sang webhook.
- * Phải decode: Buffer.from(raw_payload, "base64") → JSON.parse để lấy dữ liệu thực.
  */
 export function startWebhookServer(
   options: WebhookServerOptions,
@@ -44,18 +48,7 @@ export function startWebhookServer(
   bus: EventBus,
   activationLockService: ActivationLockServiceApi
 ): http.Server {
-  const webhookPath = options.webhookPath ?? "/webhook/micromdm";
-
   const server = http.createServer((req, res) => {
-    getLogger().info(`[webhookServer] Nhận request: ${req.method} ${req.url}`);
-
-    // Bug #9 fix: Validate URL path — only process requests at the expected path.
-    // This prevents arbitrary callers from injecting fake MDM events.
-    if (req.url !== webhookPath) {
-      res.writeHead(404).end();
-      return;
-    }
-
     if (req.method !== "POST") {
       res.writeHead(405).end();
       return;
@@ -67,7 +60,6 @@ export function startWebhookServer(
     });
 
     req.on("end", () => {
-      getLogger().info(`[webhookServer] Body: ${body}`);
       res.writeHead(200).end();
       void handleWebhookBody(body, options, client, bus, activationLockService);
     });
@@ -76,49 +68,18 @@ export function startWebhookServer(
   server.listen(options.port, () => {
     getLogger().info("[webhookServer] Đang lắng nghe webhook MicroMDM", {
       port: options.port,
-      path: webhookPath,
     });
   });
 
   return server;
 }
 
-/**
- * Decode raw_payload từ base64 thành Record<string, unknown>.
- *
- * MicroMDM gửi raw_payload là []byte (Go) được marshal thành base64 string trong JSON.
- * Bước decode: base64 string → UTF-8 string → JSON.parse → object.
- * Nếu parse thất bại (thiết bị trả dữ liệu không phải JSON hợp lệ), trả về {}.
- */
-function decodeRawPayload(base64: string | undefined): Record<string, unknown> {
-  if (!base64) return {};
-
-  try {
-    // 1. Convert Base64 (supporting base64url if needed) to standard UTF-8 string
-    const normalized = base64.replace(/-/g, "+").replace(/_/g, "/");
-    const decodedStr = Buffer.from(normalized, "base64").toString("utf-8");
-
-    // 2. Try parsing as JSON first (for Apple Declarative Management / DDMF)
-    if (decodedStr.trim().startsWith("{")) {
-      const parsedJson = JSON.parse(decodedStr);
-      return typeof parsedJson === "object" && parsedJson !== null ? parsedJson : {};
-    }
-
-    // 3. Fallback to XML Plist parser (for traditional Apple MDM protocol)
-    const parsedPlist = parse(decodedStr);
-
-    if (typeof parsedPlist === "object" && parsedPlist !== null && !Array.isArray(parsedPlist)) {
-      return parsedPlist as Record<string, unknown>;
-    }
-
-    return {};
-  } catch (error) {
-    getLogger().warn("[webhookServer] Cannot decode raw_payload", {
-      base64Prefix: base64.slice(0, 40),
-      error: error instanceof Error ? error.message : String(error),
-    });
-    return {};
-  }
+function isNewDevice(seenDevicesFilePath: string, udid: string): boolean {
+  const state = readJsonState<SeenDevicesState>(seenDevicesFilePath, { udids: [] });
+  if (state.udids.includes(udid)) return false;
+  state.udids.push(udid);
+  writeJsonState(seenDevicesFilePath, state);
+  return true;
 }
 
 async function handleWebhookBody(
@@ -138,111 +99,63 @@ async function handleWebhookBody(
     return;
   }
 
-  // MicroMDM đôi khi gửi acknowledge_event trong topic "mdm.Connect" (heartbeat)
-  // thay vì "mdm.Acknowledge". Do đó, chúng ta xử lý acknowledge_event độc lập với topic.
-  if (event.acknowledge_event) {
-    const ack = event.acknowledge_event;
-    const decodedPayload = decodeRawPayload(ack.raw_payload);
-    client.resolveAcknowledge(ack.command_uuid, ack.status, decodedPayload);
-
-    console.log(decodedPayload);
-
-    if (ack.status === "Acknowledged") {
-      bus.publish({
-        type: "mdm.command.succeeded",
-        command: ack.command_uuid,
-        commandUUID: ack.command_uuid,
-      });
-    } else if (ack.status === "Error") {
-      let errorMessage = "MicroMDM báo lỗi khi thực thi command trên thiết bị";
-      
-      if (Array.isArray(decodedPayload.ErrorChain) && decodedPayload.ErrorChain.length > 0) {
-        const firstError = decodedPayload.ErrorChain[0] as Record<string, unknown>;
-        if (firstError && typeof firstError.LocalizedDescription === "string") {
-          errorMessage = firstError.LocalizedDescription;
-        } else if (firstError && typeof firstError.USEnglishDescription === "string") {
-          errorMessage = firstError.USEnglishDescription;
-        }
-      }
-
-      bus.publish({
-        type: "mdm.command.failed",
-        command: ack.command_uuid,
-        commandUUID: ack.command_uuid,
-        error: errorMessage,
-      });
-    }
-  }
-
   switch (event.topic) {
-    case "mdm.Authenticate": {
-      /**
-       * Bug #3 fix: mdm.Authenticate là topic enrollment thực tế trong MicroMDM.
-       * "mdm.Enrollment" không tồn tại. Khi thiết bị enroll lần đầu, MicroMDM
-       * phát mdm.Authenticate, sau đó mdm.TokenUpdate.
-       *
-       * Bug #4 fix: UDID nằm trong checkin_event.udid, KHÔNG phải root event.udid.
-       */
-      const udid = event.checkin_event?.udid;
-      if (udid === options.deviceUUID) {
-        await activationLockService.handleEnrollment(udid);
-      }
-      // Authenticate cũng báo hiệu device online
-      if (udid === options.deviceUUID) {
-        bus.publish({
-          type: "device.checkin",
-          deviceUUID: udid,
-          requestType: event.topic,
-        });
-        bus.publish({ type: "device.online" });
-      }
-      break;
-    }
-
-    case "mdm.Acknowledge": {
-      // Đã được xử lý ở khối bên ngoài switch thông qua event.acknowledge_event
-      break;
-    }
-
     case "mdm.TokenUpdate": {
-      /**
-       * Bug #4 fix: UDID nằm trong checkin_event.udid, KHÔNG phải event.udid.
-       * mdm.TokenUpdate xảy ra sau Authenticate (enroll) và khi token được gia hạn.
-       */
-      const udid = event.checkin_event?.udid;
-      if (udid === options.deviceUUID) {
-        bus.publish({
-          type: "device.checkin",
-          deviceUUID: udid,
-          requestType: event.topic,
-        });
-        bus.publish({ type: "device.online" });
+      const ci = event.checkin_event;
+      if (!ci || ci.udid !== options.deviceUUID) break;
+
+      // TokenUpdate lần đầu (push token vừa đăng ký) ~= enrollment vừa hoàn tất.
+      // Đây là cách MicroMDM chính thức khuyến nghị để phát hiện enroll mới,
+      // vì không có topic "mdm.Enrollment" riêng.
+      if (isNewDevice(options.seenDevicesFilePath, ci.udid)) {
+        await activationLockService.handleEnrollment(ci.udid);
       }
+
+      bus.publish({ type: "device.checkin", deviceUUID: ci.udid, requestType: event.topic });
+      bus.publish({ type: "device.online" });
+      break;
+    }
+
+    case "mdm.Authenticate": {
+      const ci = event.checkin_event;
+      if (!ci || ci.udid !== options.deviceUUID) break;
+      bus.publish({ type: "device.checkin", deviceUUID: ci.udid, requestType: event.topic });
+      bus.publish({ type: "device.online" });
       break;
     }
 
     case "mdm.CheckOut": {
-      /**
-       * Bug #4 fix: UDID nằm trong checkin_event.udid.
-       */
-      const udid = event.checkin_event?.udid;
-      if (udid === options.deviceUUID) {
-        bus.publish({ type: "device.offline" });
-      }
+      const ci = event.checkin_event;
+      if (!ci || ci.udid !== options.deviceUUID) break;
+      bus.publish({ type: "device.offline" });
       break;
     }
 
     case "mdm.Connect": {
-      /**
-       * Bug #10 fix: mdm.Connect là topic heartbeat thực tế của MicroMDM (thiết bị
-       * kết nối lấy command pending). "mdm.CheckinEvent" không tồn tại.
-       * Publish heartbeat để notifyBridge lọc (không notify mặc định).
-       */
-      bus.publish({ type: "heartbeat" });
+      const ack = event.acknowledge_event;
+      if (!ack) break;
+      client.resolveAcknowledge(ack.command_uuid, ack.status, ack.raw_payload);
+      if (ack.status === "Acknowledged") {
+        bus.publish({
+          type: "mdm.command.succeeded",
+          command: ack.command_uuid,
+          commandUUID: ack.command_uuid,
+        });
+      } else if (ack.status === "Error") {
+        bus.publish({
+          type: "mdm.command.failed",
+          command: ack.command_uuid,
+          commandUUID: ack.command_uuid,
+          error: "MicroMDM báo lỗi khi thực thi command trên thiết bị",
+        });
+      }
+      // status "NotNow" - thiết bị bận, không coi là lỗi, không publish gì thêm
       break;
     }
 
     default:
-      getLogger().warn("[webhookServer] Topic webhook không xử lý", { topic: (event as { topic: string }).topic });
+      getLogger().warn("[webhookServer] Topic webhook không xử lý", {
+        topic: (event as { topic?: string }).topic,
+      });
   }
 }

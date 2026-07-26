@@ -18,11 +18,6 @@ export function buildRestrictedAppsProfile(options: MobileConfigOptions): string
   const payloadUUID = randomUUID();
   const contentUUID = randomUUID();
 
-  /**
-   * Cập nhật cho iOS 15+: `blacklistedAppBundleIDs` đã bị deprecated.
-   * Apple thay thế bằng `blockedAppBundleIDs` ngay trong cùng payload `com.apple.applicationaccess`.
-   * Gửi cả hai key để đảm bảo tương thích ngược với iOS < 15 và hoạt động đúng trên iOS 15+.
-   */
   const bundleIdsXml = options.restrictedBundleIds
     .map((id) => `\t\t\t\t<string>${escapeXml(id)}</string>`)
     .join("\n");
@@ -42,7 +37,7 @@ export function buildRestrictedAppsProfile(options: MobileConfigOptions): string
 \t\t\t<string>${contentUUID}</string>
 \t\t\t<key>PayloadVersion</key>
 \t\t\t<integer>1</integer>
-\t\t\t<key>blockedAppBundleIDs</key>
+\t\t\t<key>blacklistedAppBundleIDs</key>
 \t\t\t<array>
 ${bundleIdsXml}
 \t\t\t</array>

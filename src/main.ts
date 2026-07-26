@@ -14,6 +14,7 @@ import { createMarkLostService } from "./services/markLostService";
 import { createBlacklistService } from "./services/blacklistService";
 import { createDeviceInfoService } from "./services/deviceInfoService";
 import { createActivationLockService } from "./services/activationLockService";
+import { createAppManagementService } from "./services/appManagementService";
 import { FocusScheduler } from "./scheduler/focusScheduler";
 import { createMarkLostPoller } from "./scheduler/markLostPoller";
 import { createDeviceInfoPoller } from "./scheduler/deviceInfoPoller";
@@ -38,6 +39,11 @@ import { createUnlockCommand, createLostCommand } from "./commands/emergency/los
 import { createSafeCommand } from "./commands/emergency/safe.command";
 import { createMarkLostCommand } from "./commands/emergency/markLost.command";
 import { createApiCommand } from "./commands/emergency/api.command";
+import {
+  createInstallAppCommand,
+  createListAppsCommand,
+  createRemoveAppCommand,
+} from "./commands/emergency/app.command";
 
 async function main(): Promise<void> {
   // 1. Config - fail-fast nếu thiếu biến môi trường
@@ -57,7 +63,11 @@ async function main(): Promise<void> {
 
   // 3. Telegram bot + notification service
   const bot = createBot(config.secrets.telegramBotToken);
-  const notificationService = createNotificationService(bot, config.secrets.authorizedTelegramChatId);
+  // Bot chỉ có 1 chat chính chủ - lấy chatId từ tin nhắn đầu tiên do chính
+  // chủ gửi (đơn giản hoá: coi telegramId của Authorized Username == chatId
+  // cho chat riêng 1-1, đúng với cách Telegram cấp ID cho private chat).
+  let primaryChatId: number | null = null;
+  const notificationService = createNotificationService(bot);
 
   // 4. Auth
   const emergencyAuthService = createEmergencyAuthService(
@@ -66,11 +76,21 @@ async function main(): Promise<void> {
   );
 
   // 5. Scheduler + services phụ thuộc scheduler
+  // Ref tạm để onRecurringTrigger (định nghĩa TRƯỚC focusService vì focusScheduler
+  // cần callback này ngay lúc khởi tạo) có thể gọi tới focusService thật sau khi
+  // nó được tạo bên dưới - tránh circular dependency giữa scheduler <-> service.
+  let focusServiceRef: import("./services/focusService").FocusServiceApi | null = null;
+
   const focusScheduler = new FocusScheduler(
     config.constants.scheduleFilePath,
     () => handleFocusExpire(deviceCommands, bus),
-    async () => {
-      /* recurring start/end trigger - tương lai mở rộng, hiện tại no-op an toàn */
+    async (action: "start" | "end") => {
+      if (!focusServiceRef) return;
+      if (action === "start") {
+        await focusServiceRef.enable();
+      } else {
+        await focusServiceRef.disable();
+      }
     }
   );
 
@@ -86,6 +106,7 @@ async function main(): Promise<void> {
     safeModeService,
     bus
   );
+  focusServiceRef = focusService;
 
   const markLostPoller = createMarkLostPoller();
   const markLostService = createMarkLostService(
@@ -102,6 +123,7 @@ async function main(): Promise<void> {
   const deviceInfoService = createDeviceInfoService(deviceCommands, deviceInfoPoller);
 
   const activationLockService = createActivationLockService(deviceCommands, bus);
+  const appManagementService = createAppManagementService(deviceCommands, bus);
 
   // 6. Event subscribers
   attachHistoryLogger(bus, config.constants.historyFilePath);
@@ -109,7 +131,11 @@ async function main(): Promise<void> {
 
   // 7. Webhook server (nhận Enrollment/Acknowledge/CheckIn từ MicroMDM)
   startWebhookServer(
-    { port: config.constants.webhookPort, webhookPath: config.constants.webhookPath, deviceUUID: config.constants.deviceUUID },
+    {
+      port: config.constants.webhookPort,
+      deviceUUID: config.constants.deviceUUID,
+      seenDevicesFilePath: "./data/seen-devices.json",
+    },
     microMdmClient,
     bus,
     activationLockService
@@ -132,6 +158,9 @@ async function main(): Promise<void> {
     createSafeCommand(safeModeService),
     createMarkLostCommand(markLostService),
     createApiCommand(deviceCommands, bus),
+    createInstallAppCommand(appManagementService),
+    createListAppsCommand(appManagementService),
+    createRemoveAppCommand(appManagementService),
   ];
 
   const router = createRouter(
@@ -142,6 +171,17 @@ async function main(): Promise<void> {
   );
 
   bot.on("message", (msg) => {
+    // Bind primaryChatId lần đầu tiên tin nhắn tới từ đúng Authorized Username
+    // (dùng để notificationService biết gửi notify chủ động về đâu).
+    if (
+      primaryChatId === null &&
+      msg.from?.username?.toLowerCase().replace(/^@/, "") ===
+        config.secrets.authorizedTelegramUsername
+    ) {
+      primaryChatId = msg.chat.id;
+      notificationService.setChatId(primaryChatId);
+      logger.info("[main] Đã bind primaryChatId cho notification", { primaryChatId });
+    }
     void router(bot, msg);
   });
 

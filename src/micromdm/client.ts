@@ -1,5 +1,6 @@
 import fetch from "node-fetch";
 import { randomUUID } from "crypto";
+import { parse as parsePlist } from "plist";
 import { getLogger } from "../utils/logger";
 import { MicroMdmError } from "../utils/errors";
 import {
@@ -39,23 +40,41 @@ interface PendingCommand {
 export class MicroMdmClient {
   private readonly pending = new Map<string, PendingCommand>();
 
-  constructor(private readonly options: MicroMdmClientOptions) { }
+  constructor(private readonly options: MicroMdmClientOptions) {}
 
-  /** Gọi bởi webhookServer khi nhận được sự kiện mdm.Acknowledge */
+  /**
+   * Gọi bởi webhookServer khi nhận được sự kiện mdm.Connect (acknowledge_event).
+   * `rawPayloadBase64` là base64 của plist XML THẬT mà thiết bị gửi (theo Apple MDM
+   * Protocol Reference) - decode + parse ở đây, KHÔNG phải JSON đã parse sẵn.
+   */
   resolveAcknowledge(
     commandUUID: string,
     status: "Acknowledged" | "Error" | "NotNow",
-    raw?: Record<string, unknown>
+    rawPayloadBase64?: string
   ): void {
     const pending = this.pending.get(commandUUID);
     if (!pending) return; // không có ai đang chờ command này (fire-and-forget) - bỏ qua
     clearTimeout(pending.timeout);
     this.pending.delete(commandUUID);
+
+    let parsed: Record<string, unknown> = {};
+    if (rawPayloadBase64) {
+      try {
+        const xml = Buffer.from(rawPayloadBase64, "base64").toString("utf-8");
+        parsed = parsePlist(xml) as Record<string, unknown>;
+      } catch (err) {
+        getLogger().error("[micromdm] Parse plist raw_payload thất bại", {
+          commandUUID,
+          error: (err as Error).message,
+        });
+      }
+    }
+
     pending.resolve({
       commandUUID,
       requestType: pending.requestType,
       status,
-      raw,
+      raw: parsed,
     });
   }
 
@@ -107,7 +126,7 @@ export class MicroMdmClient {
         reject(
           new MicroMdmError(
             `Timeout chờ Acknowledge cho command ${payload.request_type} ` +
-            `(commandUUID=${queued.commandUUID}). Thiết bị có thể đang offline.`
+              `(commandUUID=${queued.commandUUID}). Thiết bị có thể đang offline.`
           )
         );
       }, this.options.commandResultTimeoutMs);
@@ -121,11 +140,90 @@ export class MicroMdmClient {
     });
   }
 
+  /**
+   * Gửi RAW plist command qua endpoint /v1/commands/<udid> (khác endpoint JSON
+   * /v1/commands). Dùng cho các command mà field casing trong JSON schema của
+   * MicroMDM CHƯA verify được chắc chắn (vd Settings/MDMOptions cho Activation
+   * Lock) - ở đây ta tự build plist XML đúng theo Apple MDM Protocol Reference,
+   * tránh đoán sai tên field JSON nội bộ của MicroMDM.
+   * Xem: "Schedule Raw Commands with the API" trong docs/user-guide/api-and-webhooks.md
+   */
+  /**
+   * Giống sendRawCommand() nhưng CHỜ Acknowledge qua webhook trước khi resolve -
+   * dùng cho các raw command cần đọc dữ liệu trả về (vd InstalledApplicationList).
+   * `commandUUID` PHẢI khớp với <key>CommandUUID</key> đã nhúng sẵn trong `plistXml`
+   * (caller tự generate UUID và nhúng vào plist trước khi gọi hàm này).
+   */
+  async sendRawCommandAndWait(
+    udid: string,
+    commandUUID: string,
+    plistXml: string
+  ): Promise<MdmCommandResult> {
+    const waitPromise = new Promise<MdmCommandResult>((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        this.pending.delete(commandUUID);
+        reject(
+          new MicroMdmError(
+            `Timeout chờ Acknowledge cho raw command (commandUUID=${commandUUID}). ` +
+              `Thiết bị có thể đang offline.`
+          )
+        );
+      }, this.options.commandResultTimeoutMs);
+
+      // requestType không quan trọng lắm ở raw command (chỉ dùng để log lại) -
+      // để "RawCommand" làm placeholder chung.
+      this.pending.set(commandUUID, { resolve, reject, requestType: "InstallProfile", timeout });
+    });
+
+    const res = await fetch(`${this.options.baseUrl}/v1/commands/${udid}`, {
+      method: "POST",
+      headers: { ...this.authHeaders(), "Content-Type": "application/xml" },
+      body: plistXml,
+    });
+
+    if (!res.ok) {
+      const text = await res.text();
+      this.pending.delete(commandUUID);
+      throw new MicroMdmError(`MicroMDM trả lỗi khi queue raw command`, res.status, text);
+    }
+
+    await this.sendPush(udid);
+    getLogger().info("[micromdm] Raw command (wait) queued", { commandUUID, udid });
+
+    return waitPromise;
+  }
+
+  async sendRawCommand(
+    udid: string,
+    requestType: MdmRequestType,
+    plistXml: string
+  ): Promise<MdmCommandQueuedResult> {
+    const commandUUID = randomUUID();
+    const res = await fetch(`${this.options.baseUrl}/v1/commands/${udid}`, {
+      method: "POST",
+      headers: {
+        ...this.authHeaders(),
+        "Content-Type": "application/xml",
+      },
+      body: plistXml,
+    });
+
+    if (!res.ok) {
+      const text = await res.text();
+      throw new MicroMdmError(`MicroMDM trả lỗi khi queue raw command`, res.status, text);
+    }
+
+    await this.sendPush(udid);
+    getLogger().info("[micromdm] Raw command queued", { commandUUID, udid, requestType });
+
+    return { commandUUID, requestType, queuedAt: new Date().toISOString() };
+  }
+
   async installProfile(udid: string, mobileConfigBase64: string): Promise<MdmCommandQueuedResult> {
     return this.queueCommand({
       udid,
       request_type: "InstallProfile",
-      Payload: mobileConfigBase64,
+      payload: mobileConfigBase64,
     });
   }
 
@@ -140,21 +238,14 @@ export class MicroMdmClient {
   private async sendPush(udid: string): Promise<void> {
     try {
       const res = await fetch(`${this.options.baseUrl}/push/${udid}`, {
-        method: "GET",
+        method: "POST",
         headers: this.authHeaders(),
       });
       if (!res.ok) {
-        // 404 là bình thường: nghĩa là thiết bị chưa check-in lần nào hoặc không tồn tại trong MDM
-        if (res.status === 404) {
-          getLogger().warn("[micromdm] Push thất bại - 404 Not Found (thiết bị có thể chưa enroll hoặc offline lâu)", {
-            udid,
-          });
-        } else {
-          getLogger().warn("[micromdm] Push thất bại (thiết bị có thể offline)", {
-            udid,
-            status: res.status,
-          });
-        }
+        getLogger().warn("[micromdm] Push thất bại (thiết bị có thể offline)", {
+          udid,
+          status: res.status,
+        });
       }
     } catch (err) {
       getLogger().warn("[micromdm] Push lỗi network", { udid, error: (err as Error).message });

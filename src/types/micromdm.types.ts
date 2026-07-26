@@ -6,23 +6,16 @@ export type MdmRequestType =
   | "ShutDownDevice"
   | "EnableLostMode"
   | "DisableLostMode"
-  | "PlayLostModeSound"
+  | "PlaySound"
   | "DeviceInformation"
-  /**
-   * DeviceLocation: chỉ hoạt động khi thiết bị đang ở trong Lost Mode (MDM Lost Mode bật).
-   * Khi thiết bị KHÔNG ở Lost Mode, command sẽ bị thiết bị từ chối (Error/NotNow).
-   * Xem thêm: Apple MDM Protocol Reference – DeviceLocation command.
-   */
   | "DeviceLocation"
   | "InstallProfile"
   | "RemoveProfile"
   | "EraseDevice"
-  /**
-   * EnableActivationLock: bật User-Linked Activation Lock trên thiết bị Supervised.
-   * Yêu cầu thiết bị đã Supervised và iOS đủ phiên bản; cần BypassCode từ SecurityInfo
-   * để có thể tắt lại sau này. Không giống DeviceLock – không khoá màn hình.
-   */
-  | "EnableActivationLock";
+  | "InstallApplication"
+  | "RemoveApplication"
+  | "InstalledApplicationList"
+  | "Settings";
 
 /** Payload chung gửi lên MicroMDM /v1/commands */
 export interface MdmCommandPayload {
@@ -71,51 +64,33 @@ export interface DeviceInformationResult {
   isSupervised?: boolean;
   fetchedAt: string;
   source: "cache" | "realtime";
+  /** Toàn bộ QueryResponses gốc từ thiết bị - chứa mọi field đã query,
+   *  không chỉ các field tiện convenience ở trên. */
+  raw: Record<string, unknown>;
 }
 
-/**
- * Payload webhook do MicroMDM gửi (workflow/webhook/webhook.go).
- *
- * Lưu ý quan trọng:
- * - Không có trường `udid` nào ở cấp root – UDID chỉ nằm trong sub-event
- *   (acknowledge_event.udid hoặc checkin_event.udid).
- * - raw_payload trong các sub-event là []byte được JSON-encode thành chuỗi
- *   base64, KHÔNG phải object (phải decode trước khi dùng).
- * - Các topic thực tế MicroMDM phát: mdm.Authenticate, mdm.TokenUpdate,
- *   mdm.CheckOut, mdm.Acknowledge, mdm.Connect.
- *   Không có "mdm.Enrollment" hay "mdm.CheckinEvent".
- */
+/** Payload webhook do MicroMDM gửi thật (đã verify qua docs/user-guide/api-and-webhooks.md
+ *  của micromdm/micromdm - CHỈ có 4 topic này, không có "mdm.Enrollment" riêng). */
+export interface MicroMdmCheckinEvent {
+  udid: string;
+  url_params: Record<string, string> | null;
+  /** base64-encoded RAW plist XML - phải decode + parse plist, KHÔNG phải JSON */
+  raw_payload: string;
+}
+
+export interface MicroMdmAcknowledgeEvent {
+  udid: string;
+  status: "Acknowledged" | "Error" | "NotNow";
+  command_uuid: string;
+  url_params: Record<string, string> | null;
+  /** base64-encoded RAW plist XML - phải decode + parse plist, KHÔNG phải JSON */
+  raw_payload: string;
+}
+
 export interface MicroMdmWebhookEvent {
-  topic:
-  | "mdm.Authenticate"
-  | "mdm.TokenUpdate"
-  | "mdm.CheckOut"
-  | "mdm.Acknowledge"
-  | "mdm.Connect";
+  topic: "mdm.Authenticate" | "mdm.TokenUpdate" | "mdm.CheckOut" | "mdm.Connect";
   event_id: string;
   created_at: string;
-  acknowledge_event?: {
-    /** UDID của thiết bị – nằm trong sub-event, không phải root */
-    udid: string;
-    enrollment_id?: string;
-    command_uuid: string;
-    status: "Acknowledged" | "Error" | "NotNow";
-    /**
-     * Dữ liệu trả về từ thiết bị, JSON-encoded thành base64 ([]byte trong Go).
-     * Phải decode: Buffer.from(raw_payload, "base64") → JSON.parse trước khi dùng.
-     */
-    raw_payload?: string;
-  };
-  checkin_event?: {
-    /** UDID của thiết bị – nằm trong sub-event, không phải root */
-    udid: string;
-    enrollment_id?: string;
-    /** URL params MicroMDM gắn vào webhook request */
-    url_params?: Record<string, string>;
-    /**
-     * Dữ liệu checkin gốc (plist XML từ thiết bị), JSON-encoded thành base64.
-     * Thường không cần parse trừ khi cần đọc thông tin sâu hơn.
-     */
-    raw_payload?: string;
-  };
+  checkin_event?: MicroMdmCheckinEvent;
+  acknowledge_event?: MicroMdmAcknowledgeEvent;
 }
