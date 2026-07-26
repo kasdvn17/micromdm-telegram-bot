@@ -11,7 +11,7 @@ export function createSafeCommand(safeModeService: SafeModeServiceApi): CommandD
       if (sub === "on") {
         if (safeModeService.isActive()) return "🛡️ Safe mode đã đang BẬT rồi.";
         await safeModeService.enable();
-        return "🛡️ Safe mode đã BẬT (vô thời hạn). Chỉ tắt bằng /safe off hoặc /unlock.";
+        return "🛡️ Safe mode đã BẬT (vô thời hạn). Chỉ tắt bằng /safe off.";
       }
       if (sub === "off") {
         if (!safeModeService.isActive()) return "🛡️ Safe mode đang TẮT rồi.";

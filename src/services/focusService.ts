@@ -22,10 +22,13 @@ export interface FocusServiceApi {
   extend(ms: number): Promise<void>;
   cancel(): Promise<void>;
   listSchedules(): FocusSchedule[];
+  addRecurringSchedule(daysOfWeek: number[], startTime: string, endTime: string): FocusSchedule;
   enableRecurring(scheduleId: string): void;
   disableRecurring(scheduleId: string): void;
-  addBlockApplication(bundleId: string): Promise<void>;
-  removeBlockApplication(bundleId: string): Promise<void>;
+  /** Trả về true nếu profile được đẩy xuống máy NGAY (Focus/Safe Mode đang bật),
+   *  false nếu chỉ lưu vào danh sách để áp dụng ở lần bật Focus kế tiếp. */
+  addBlockApplication(bundleId: string): Promise<boolean>;
+  removeBlockApplication(bundleId: string): Promise<boolean>;
   listBlockApplications(): Promise<string[]>;
 }
 
@@ -54,13 +57,31 @@ export function createFocusService(
     bus.publish({ type: "profile.removed", identifier: FOCUS_PROFILE_IDENTIFIER });
   };
 
+  /**
+   * Focus (manual hoặc duration) HOẶC Safe Mode đang bật - cả 2 dùng chung
+   * profile identifier (FOCUS_PROFILE_IDENTIFIER) nên khi bất kỳ cái nào
+   * đang bật, danh sách app bị chặn hiện diện thật sự trên máy.
+   */
+  const isFocusOrSafeModeActive = (): boolean =>
+    manuallyActive || scheduler.activeDurationSchedule() !== null || safeModeService.isActive();
+
   return {
     async enable(durationMs?: number): Promise<void> {
       if (safeModeService.isActive()) {
         throw new ValidationError(
-          "Safe mode đang bật - dùng /safe off hoặc /unlock trước khi bật Focus."
+          "Safe mode đang bật - dùng /safe off trước khi bật Focus."
         );
       }
+      // BUG CŨ: enable() tạo schedule mới mà không dọn state cũ, nên gọi
+      // /focus <duration> nhiều lần (hoặc /focus on sau khi đã có 1 duration
+      // đang chạy) tạo ra NHIỀU duration-schedule cùng tồn tại - status()/
+      // extend()/cancel() chỉ thao tác trên 1 cái (cái cũ nhất, do dùng
+      // .find()), còn (các) cái kia vẫn tự hết hạn ngầm sau đó và tắt Focus
+      // ngoài ý muốn dù người dùng tưởng đã set lại hoặc đã chuyển sang bật
+      // vô thời hạn. Luôn dọn sạch state cũ trước khi set state mới để chỉ
+      // có duy nhất 1 "nguồn sự thật" tại 1 thời điểm.
+      scheduler.cancelAllDurations();
+      manuallyActive = false;
       await installFocusProfile();
       if (durationMs) {
         scheduler.scheduleDuration(durationMs);
@@ -73,11 +94,14 @@ export function createFocusService(
     async disable(): Promise<void> {
       if (safeModeService.isActive()) {
         throw new ValidationError(
-          "Safe mode đang bật - dùng /safe off hoặc /unlock để tắt Focus."
+          "Safe mode đang bật - dùng /safe off để tắt Focus."
         );
       }
-      const active = scheduler.activeDurationSchedule();
-      if (active) scheduler.cancel(active.id);
+      // Dọn TOÀN BỘ duration-schedule (không chỉ 1 cái tìm được bởi
+      // activeDurationSchedule()) để tránh còn sót schedule "ma" tự hết hạn
+      // sau này và bắn thông báo "focus.disabled" giả dù người dùng đã tắt
+      // Focus thủ công từ trước.
+      scheduler.cancelAllDurations();
       manuallyActive = false;
       await removeFocusProfile();
       bus.publish({ type: "focus.disabled" });
@@ -100,8 +124,7 @@ export function createFocusService(
     },
 
     async cancel(): Promise<void> {
-      const active = scheduler.activeDurationSchedule();
-      if (active) scheduler.cancel(active.id);
+      scheduler.cancelAllDurations();
       manuallyActive = false;
       await removeFocusProfile();
       bus.publish({ type: "focus.disabled" });
@@ -109,6 +132,10 @@ export function createFocusService(
 
     listSchedules(): FocusSchedule[] {
       return scheduler.listSchedules();
+    },
+
+    addRecurringSchedule(daysOfWeek: number[], startTime: string, endTime: string): FocusSchedule {
+      return scheduler.addRecurring(daysOfWeek, startTime, endTime);
     },
 
     enableRecurring(scheduleId: string): void {
@@ -119,13 +146,27 @@ export function createFocusService(
       scheduler.disableRecurring(scheduleId);
     },
 
-    async addBlockApplication(bundleId: string): Promise<void> {
-      const bundleIds = addFocusBundleId(restrictedAppsFilePath, bundleId);
-      await installFocusProfile();
+    async addBlockApplication(bundleId: string): Promise<boolean> {
+      addFocusBundleId(restrictedAppsFilePath, bundleId);
+      // BUG CŨ: luôn gọi installFocusProfile() vô điều kiện, kể cả khi Focus
+      // đang TẮT -> vô tình BẬT profile chặn app trên máy dù bot vẫn báo
+      // /focus status là "TẮT" (state trên bot và trên máy lệch nhau), đồng
+      // thời bỏ qua luôn kiểm tra Safe Mode. Giờ chỉ đẩy xuống máy NGAY khi
+      // Focus (manual/duration) hoặc Safe Mode đang thực sự bật; nếu không,
+      // chỉ lưu vào file để áp dụng ở lần bật Focus kế tiếp.
+      const appliedNow = isFocusOrSafeModeActive();
+      if (appliedNow) {
+        await installFocusProfile();
+      }
+      return appliedNow;
     },
-    async removeBlockApplication(bundleId: string): Promise<void> {
-      const bundleIds = removeFocusBundleId(restrictedAppsFilePath, bundleId);
-      await installFocusProfile();
+    async removeBlockApplication(bundleId: string): Promise<boolean> {
+      removeFocusBundleId(restrictedAppsFilePath, bundleId);
+      const appliedNow = isFocusOrSafeModeActive();
+      if (appliedNow) {
+        await installFocusProfile();
+      }
+      return appliedNow;
     },
     async listBlockApplications(): Promise<string[]> {
       return loadFocusBundleIds(restrictedAppsFilePath);

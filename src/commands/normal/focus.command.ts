@@ -1,7 +1,9 @@
 import { AuthTier, CommandContext, CommandDefinition } from "../../types/command.types";
 import { FocusServiceApi } from "../../services/focusService";
-import { parseDurationToMs, formatDuration } from "../../utils/time";
+import { parseDurationToMs, formatDuration, normalizeTimeOfDay, parseDaysOfWeek } from "../../utils/time";
 import { ValidationError } from "../../utils/errors";
+
+const DAY_NAMES = ["CN", "T2", "T3", "T4", "T5", "T6", "T7"];
 
 export function createFocusCommand(focusService: FocusServiceApi): CommandDefinition {
   return {
@@ -51,8 +53,28 @@ export function createFocusCommand(focusService: FocusServiceApi): CommandDefini
             const schedules = focusService.listSchedules();
             if (schedules.length === 0) return "📋 Chưa có schedule nào.";
             return schedules
-              .map((s) => `- [${s.id.slice(0, 8)}] ${s.type} - ${s.enabled ? "enabled" : "disabled"}`)
+              .map((s) => {
+                const label = `[${s.id.slice(0, 8)}] ${s.type} - ${s.enabled ? "enabled" : "disabled"}`;
+                if (s.type === "recurring" && s.recurring) {
+                  const days = s.recurring.daysOfWeek.map((d) => DAY_NAMES[d]).join(",");
+                  return `- ${label} - ${s.recurring.startTime}-${s.recurring.endTime} (${days})`;
+                }
+                return `- ${label}`;
+              })
               .join("\n");
+          }
+          if (scheduleAction === "add") {
+            const startTime = normalizeTimeOfDay(rest[1] ?? "");
+            const endTime = normalizeTimeOfDay(rest[2] ?? "");
+            if (startTime >= endTime) {
+              throw new ValidationError(
+                `Giờ bắt đầu (${startTime}) phải nhỏ hơn giờ kết thúc (${endTime}). Chưa hỗ trợ khung giờ qua đêm.`
+              );
+            }
+            const daysOfWeek = parseDaysOfWeek(rest[3]);
+            const schedule = focusService.addRecurringSchedule(daysOfWeek, startTime, endTime);
+            const days = daysOfWeek.map((d) => DAY_NAMES[d]).join(",");
+            return `📋 Đã tạo schedule [${schedule.id.slice(0, 8)}]: Focus BẬT ${startTime}-${endTime} (${days}).`;
           }
           if (scheduleAction === "enable" || scheduleAction === "disable") {
             const scheduleId = rest[1];
@@ -61,21 +83,28 @@ export function createFocusCommand(focusService: FocusServiceApi): CommandDefini
             else focusService.disableRecurring(scheduleId);
             return `📋 Schedule ${scheduleId} đã ${scheduleAction === "enable" ? "bật" : "tắt"}.`;
           }
-          throw new ValidationError("Cú pháp: /focus schedule list|enable <id>|disable <id>");
+          throw new ValidationError(
+            "Cú pháp: /focus schedule list|add <start> <end> [days]|enable <id>|disable <id>\n" +
+              'Vd: /focus schedule add 06:00 23:00 (mặc định tất cả các ngày, hoặc truyền "1,2,3,4,5" cho T2-T6, 0=CN)'
+          );
         }
 
         case "blockadd": {
           const bundleId = rest[0];
           if (!bundleId) throw new ValidationError("Cú pháp: /focus blockadd <bundleId>");
-          await focusService.addBlockApplication(bundleId);
-          return `🚫 Đã thêm "${bundleId}" vào danh sách chặn ứng dụng trong Focus mode.`;
+          const appliedNow = await focusService.addBlockApplication(bundleId);
+          return appliedNow
+            ? `🚫 Đã thêm "${bundleId}" vào danh sách chặn và áp dụng NGAY (Focus/Safe Mode đang bật).`
+            : `🚫 Đã thêm "${bundleId}" vào danh sách chặn. Sẽ áp dụng khi bật Focus lần tới (hiện Focus đang TẮT nên chưa đẩy xuống máy).`;
         }
 
         case "blockremove": {
           const bundleId = rest[0];
           if (!bundleId) throw new ValidationError("Cú pháp: /focus blockremove <bundleId>");
-          await focusService.removeBlockApplication(bundleId);
-          return `✅ Đã gỡ "${bundleId}" khỏi danh sách chặn ứng dụng trong Focus mode.`;
+          const appliedNow = await focusService.removeBlockApplication(bundleId);
+          return appliedNow
+            ? `✅ Đã gỡ "${bundleId}" khỏi danh sách chặn và áp dụng NGAY (Focus/Safe Mode đang bật).`
+            : `✅ Đã gỡ "${bundleId}" khỏi danh sách chặn. Sẽ áp dụng khi bật Focus lần tới (hiện Focus đang TẮT nên chưa đẩy xuống máy).`;
         }
 
         case "blocklist": {

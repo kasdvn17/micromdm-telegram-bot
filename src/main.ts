@@ -153,7 +153,7 @@ async function main(): Promise<void> {
     createAuthTestCommand(emergencyAuthService),
     createBlacklistCommand(blacklistService),
     ...createDeviceCommands(deviceCommands, deviceInfoService),
-    createUnlockCommand(deviceCommands, safeModeService),
+    createUnlockCommand(deviceCommands),
     createLostCommand(deviceCommands, bus),
     createSafeCommand(safeModeService),
     createMarkLostCommand(markLostService),

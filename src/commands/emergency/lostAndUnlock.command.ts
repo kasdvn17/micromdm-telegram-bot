@@ -1,25 +1,18 @@
 import { AuthTier, CommandContext, CommandDefinition } from "../../types/command.types";
 import { DeviceCommands } from "../../micromdm/deviceCommands";
-import { SafeModeServiceApi } from "../../services/safeModeService";
 import { EventBus } from "../../events/eventBus";
 import { ValidationError } from "../../utils/errors";
 
-export function createUnlockCommand(
-  deviceCommands: DeviceCommands,
-  safeModeService: SafeModeServiceApi
-): CommandDefinition {
+export function createUnlockCommand(deviceCommands: DeviceCommands): CommandDefinition {
   return {
     name: "unlock",
     tier: AuthTier.Emergency,
     handler: async (): Promise<string> => {
+      // Theo yêu cầu: /unlock và Safe Mode là 2 cơ chế ĐỘC LẬP - /unlock chỉ
+      // gửi lệnh mở khoá máy (ClearPasscode), KHÔNG còn tự động tắt Safe Mode
+      // nữa. Muốn tắt Safe Mode, dùng riêng /safe off.
       await deviceCommands.unlock();
-      // Theo yêu cầu: /unlock cũng tự động tắt Safe Mode nếu đang bật
-      let safeNote = "";
-      if (safeModeService.isActive()) {
-        await safeModeService.disable();
-        safeNote = " (Safe mode cũng đã được tắt.)";
-      }
-      return `🔓 Đã gửi lệnh mở khoá máy.${safeNote}`;
+      return "🔓 Đã gửi lệnh mở khoá máy.";
     },
   };
 }
