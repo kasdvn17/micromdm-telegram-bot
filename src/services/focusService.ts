@@ -6,7 +6,7 @@ import {
   buildRestrictedAppsProfile,
   FOCUS_PROFILE_IDENTIFIER,
 } from "../profiles/profileBuilder";
-import { loadFocusBundleIds } from "../profiles/restrictedApps";
+import { loadFocusBundleIds, addFocusBundleId, removeFocusBundleId } from "../profiles/restrictedApps";
 import { ValidationError } from "../utils/errors";
 import { FocusSchedule } from "../types/scheduler.types";
 
@@ -24,6 +24,9 @@ export interface FocusServiceApi {
   listSchedules(): FocusSchedule[];
   enableRecurring(scheduleId: string): void;
   disableRecurring(scheduleId: string): void;
+  addBlockApplication(bundleId: string): Promise<void>;
+  removeBlockApplication(bundleId: string): Promise<void>;
+  listBlockApplications(): Promise<string[]>;
 }
 
 export function createFocusService(
@@ -115,6 +118,18 @@ export function createFocusService(
     disableRecurring(scheduleId: string): void {
       scheduler.disableRecurring(scheduleId);
     },
+
+    async addBlockApplication(bundleId: string): Promise<void> {
+      const bundleIds = addFocusBundleId(restrictedAppsFilePath, bundleId);
+      await installFocusProfile();
+    },
+    async removeBlockApplication(bundleId: string): Promise<void> {
+      const bundleIds = removeFocusBundleId(restrictedAppsFilePath, bundleId);
+      await installFocusProfile();
+    },
+    async listBlockApplications(): Promise<string[]> {
+      return loadFocusBundleIds(restrictedAppsFilePath);
+    }
   };
 }
 

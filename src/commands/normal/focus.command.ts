@@ -64,9 +64,30 @@ export function createFocusCommand(focusService: FocusServiceApi): CommandDefini
           throw new ValidationError("Cú pháp: /focus schedule list|enable <id>|disable <id>");
         }
 
+        case "blockadd": {
+          const bundleId = rest[0];
+          if (!bundleId) throw new ValidationError("Cú pháp: /focus blockadd <bundleId>");
+          await focusService.addBlockApplication(bundleId);
+          return `🚫 Đã thêm "${bundleId}" vào danh sách chặn ứng dụng trong Focus mode.`;
+        }
+
+        case "blockremove": {
+          const bundleId = rest[0];
+          if (!bundleId) throw new ValidationError("Cú pháp: /focus blockremove <bundleId>");
+          await focusService.removeBlockApplication(bundleId);
+          return `✅ Đã gỡ "${bundleId}" khỏi danh sách chặn ứng dụng trong Focus mode.`;
+        }
+
+        case "blocklist": {
+          const blockList = await focusService.listBlockApplications();
+          return blockList.length === 0
+            ? "📋 Danh sách chặn ứng dụng trong Focus mode đang trống."
+            : blockList.map((b) => `- ${b}`).join("\n");
+        }
+
         default: {
           // không match subcommand nào -> thử parse như duration, vd "/focus 90m"
-          if (!sub) throw new ValidationError("Cú pháp: /focus on|off|status|remaining|extend <d>|cancel|schedule ...");
+          if (!sub) throw new ValidationError("Cú pháp: /focus on|off|status|remaining|extend <d>|cancel|schedule|blockadd|blockremove|blocklist ...");
           const ms = parseDurationToMs(sub);
           await focusService.enable(ms);
           return `🎯 Focus mode đã BẬT trong ${formatDuration(ms)}.`;

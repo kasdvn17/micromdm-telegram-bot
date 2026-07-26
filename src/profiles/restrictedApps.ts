@@ -13,6 +13,22 @@ export function loadFocusBundleIds(restrictedAppsFilePath: string): string[] {
   return data.bundleIds;
 }
 
+export function addFocusBundleId(restrictedAppsFilePath: string, bundleId: string): string[] {
+  const data = readJsonState<BundleIdListFile>(restrictedAppsFilePath, { bundleIds: [] });
+  if (!data.bundleIds.includes(bundleId)) {
+    data.bundleIds.push(bundleId);
+    writeJsonState(restrictedAppsFilePath, data);
+  }
+  return data.bundleIds;
+}
+
+export function removeFocusBundleId(restrictedAppsFilePath: string, bundleId: string): string[] {
+  const data = readJsonState<BundleIdListFile>(restrictedAppsFilePath, { bundleIds: [] });
+  data.bundleIds = data.bundleIds.filter((id) => id !== bundleId);
+  writeJsonState(restrictedAppsFilePath, data);
+  return data.bundleIds;
+}
+
 export function loadBlacklistBundleIds(blacklistFilePath: string): string[] {
   const data = readJsonState<BundleIdListFile>(blacklistFilePath, { bundleIds: [] });
   return data.bundleIds;

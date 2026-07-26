@@ -29,9 +29,9 @@ export function createLostCommand(deviceCommands: DeviceCommands, bus: EventBus)
     name: "lost",
     tier: AuthTier.Emergency,
     handler: async (ctx: CommandContext): Promise<string> => {
-      const [sub] = ctx.effectiveArgs;
+      const [sub, phone, ...rest] = ctx.effectiveArgs;
       if (sub === "enable") {
-        await deviceCommands.enableLostMode();
+        await deviceCommands.enableLostMode(phone, rest.join(" "));
         bus.publish({ type: "lostmode.enabled" });
         return "🚨 Đã bật Lost Mode (thật) trên thiết bị.";
       }

@@ -55,10 +55,11 @@ export class DeviceCommands {
     });
   }
 
-  enableLostMode(message?: string): Promise<MdmCommandQueuedResult> {
+  enableLostMode(phone: string, message?: string): Promise<MdmCommandQueuedResult> {
     return this.client.queueCommand({
       udid: this.deviceUUID,
       request_type: "EnableLostMode",
+      phone_number: phone,
       ...(message ? { Message: message } : {}),
     });
   }
