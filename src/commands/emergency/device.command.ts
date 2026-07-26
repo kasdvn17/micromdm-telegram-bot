@@ -62,13 +62,23 @@ export function createDeviceCommands(
       handler: async (ctx: CommandContext): Promise<string> => {
         const realtime = ctx.effectiveArgs[0] === "realtime";
         const info = await deviceInfoService.getDeviceInfo(realtime);
-        return (
+
+        const summary =
           `📱 ${info.deviceName ?? "?"} (${info.modelName ?? "?"})\n` +
           `OS: ${info.osVersion ?? "?"}\n` +
           `Pin: ${info.batteryLevel !== undefined ? Math.round(info.batteryLevel * 100) + "%" : "?"} (${info.batteryState ?? "?"})\n` +
           `Supervised: ${info.isSupervised ?? "?"}\n` +
-          `Nguồn dữ liệu: ${info.source}`
-        );
+          `Nguồn dữ liệu: ${info.source}`;
+
+        // In toàn bộ field còn lại đã query được (raw) mà chưa có convenience
+        // field riêng ở trên, để không "mất" dữ liệu đã fetch.
+        const shown = new Set(["DeviceName", "Model", "OSVersion", "BatteryLevel", "BatteryState", "IsSupervised"]);
+        const rest = Object.entries(info.raw ?? {})
+          .filter(([key]) => !shown.has(key))
+          .map(([key, value]) => `${key}: ${JSON.stringify(value)}`)
+          .join("\n");
+
+        return rest ? `${summary}\n\n📋 Chi tiết đầy đủ:\n${rest}` : summary;
       },
     },
     {
