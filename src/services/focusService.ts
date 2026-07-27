@@ -73,12 +73,25 @@ export function createFocusService(
   };
 
   /**
-   * Focus (manual hoặc duration) HOẶC Safe Mode đang bật - cả 2 dùng chung
-   * profile identifier (FOCUS_PROFILE_IDENTIFIER) nên khi bất kỳ cái nào
-   * đang bật, danh sách app bị chặn hiện diện thật sự trên máy.
+   * Focus (manual, duration, HOẶC recurring schedule đang trong khung giờ)
+   * đang thực sự có profile Focus (FOCUS_PROFILE_IDENTIFIER) trên máy.
+   *
+   * Safe Mode ĐÃ TÁCH RIÊNG (dùng SAFE_PROFILE_IDENTIFIER + danh sách app
+   * sensitive_apps.json độc lập) nên không còn liên quan tới việc profile
+   * Focus có cần đẩy lại hay không - bỏ `safeModeService.isActive()` khỏi
+   * điều kiện này.
+   *
+   * BUG ĐÃ SỬA (trước đây thiếu isWithinScheduleWindowToday()): khi Focus
+   * đang BẬT do recurring schedule (không phải manual/duration), hàm luôn
+   * trả về false. Hậu quả: /focus blockadd|blockremove tưởng Focus đang TẮT
+   * nên chỉ lưu vào file mà KHÔNG đẩy xuống máy ngay, dù app trên thực tế
+   * đang bị Focus schedule chặn - state trên bot và trên máy bị lệch nhau
+   * cho tới tận lần recurring trigger tiếp theo (hôm sau).
    */
-  const isFocusOrSafeModeActive = (): boolean =>
-    manuallyActive || scheduler.activeDurationSchedule() !== null || safeModeService.isActive();
+  const isFocusActiveNow = (): boolean =>
+    manuallyActive ||
+    scheduler.activeDurationSchedule() !== null ||
+    (scheduler.isWithinScheduleWindowToday() && !scheduler.isOnBreak());
 
   const requireNotWithinSchedule = (actionLabel: string): void => {
     if (scheduler.isWithinScheduleWindowToday()) {
@@ -224,7 +237,7 @@ export function createFocusService(
       // thời bỏ qua luôn kiểm tra Safe Mode. Giờ chỉ đẩy xuống máy NGAY khi
       // Focus (manual/duration) hoặc Safe Mode đang thực sự bật; nếu không,
       // chỉ lưu vào file để áp dụng ở lần bật Focus kế tiếp.
-      const appliedNow = isFocusOrSafeModeActive();
+      const appliedNow = isFocusActiveNow();
       if (appliedNow) {
         await installFocusProfile();
       }
@@ -232,7 +245,7 @@ export function createFocusService(
     },
     async removeBlockApplication(bundleId: string): Promise<boolean> {
       removeFocusBundleId(restrictedAppsFilePath, bundleId);
-      const appliedNow = isFocusOrSafeModeActive();
+      const appliedNow = isFocusActiveNow();
       if (appliedNow) {
         await installFocusProfile();
       }

@@ -45,14 +45,16 @@ Quy ước: lệnh Emergency/Two-Factor đặt password ngay sau tên lệnh -
 /lock <password> — khoá máy
 /restart <password> — khởi động lại
 /shutdown <password> — tắt máy
-/unlock <password> — mở khoá (tự tắt Safe Mode nếu đang bật)
+/unlock <password> — mở khoá máy (độc lập với Safe Mode, không tự tắt)
 /playsound <password> — phát âm thanh tìm máy
 /battery <password> [realtime] — mức pin
 /location <password> — vị trí (chỉ có toạ độ khi đang Managed Lost Mode thật)
 /deviceinfo <password> [realtime] — thông tin thiết bị đầy đủ (~25 field)
 /status <password> — trạng thái thiết bị (cache)
 /lost enable|disable <password> — bật/tắt Lost Mode THẬT
-/safe on|off <password> — Focus vô thời hạn, chỉ tắt bằng /safe off hoặc /unlock
+/safe on|off <password> — chặn app riêng tư (data/sensitive_apps.json), độc lập hoàn toàn với Focus, chỉ tắt bằng /safe off
+/safe blockadd|blockremove <password> <bundleId> — thêm/gỡ app khỏi danh sách chặn của Safe Mode
+/safe blocklist <password> — xem danh sách app bị Safe Mode chặn
 /mark <password> lost — bật/tắt theo dõi vị trí+heartbeat kín đáo (không bật Lost Mode thật)
 
 /installapp <password> manifest <https-url> — cài managed app từ Manifest.plist

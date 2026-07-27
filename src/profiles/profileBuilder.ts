@@ -72,3 +72,5 @@ function escapeXml(value: string): string {
 
 export const FOCUS_PROFILE_IDENTIFIER = "com.personal.micromdmbot.focus";
 export const BLACKLIST_PROFILE_IDENTIFIER = "com.personal.micromdmbot.blacklist";
+/** Riêng cho Safe Mode - độc lập hoàn toàn với Focus (profile + danh sách app khác nhau) */
+export const SAFE_PROFILE_IDENTIFIER = "com.personal.micromdmbot.safe";

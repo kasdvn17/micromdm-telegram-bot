@@ -49,6 +49,41 @@ import { createInstallProfileCommand, createListProfilesCommand, createRemovePro
 import { createHelpCommand } from "./commands/normal/help.command";
 
 async function main(): Promise<void> {
+  // Bắt toàn cục unhandledRejection/uncaughtException - CHỈ LOG, không thoát
+  // process. Lý do: các background job chạy nền qua setInterval (focusScheduler
+  // tick, deviceInfoPoller, markLostPoller...) gọi async function nhưng không
+  // await - nếu 1 lệnh gọi MicroMDM bên trong throw (mất mạng, timeout) mà
+  // thiếu try/catch ở đâu đó, promise reject sẽ "unhandled". Từ Node 15+,
+  // hành vi mặc định là CRASH CẢ PROCESS ngay lập tức và im lặng (chỉ in
+  // stack trace ra stderr, dễ bị bỏ sót nếu không theo dõi log sát sao) -
+  // đây chính xác là nguyên nhân khiến trước đây recurring schedule "sang
+  // ngày mới không tự bật Focus": tick() gặp lỗi mạng lúc activate, cả bot
+  // crash, và chỉ hoạt động lại (vô tình) khi có hành động khác kích hoạt
+  // 1 process mới. Dùng logger thay vì console vì logger có thể chưa init -
+  // fallback console nếu getLogger() cũng lỗi.
+  process.on("unhandledRejection", (reason) => {
+    try {
+      getLogger().error("[process] Unhandled promise rejection - bot vẫn tiếp tục chạy", {
+        error: reason instanceof Error ? reason.message : String(reason),
+        stack: reason instanceof Error ? reason.stack : undefined,
+      });
+    } catch {
+      // eslint-disable-next-line no-console
+      console.error("[process] Unhandled promise rejection (logger chưa sẵn sàng):", reason);
+    }
+  });
+  process.on("uncaughtException", (err) => {
+    try {
+      getLogger().error("[process] Uncaught exception - bot vẫn tiếp tục chạy", {
+        error: err.message,
+        stack: err.stack,
+      });
+    } catch {
+      // eslint-disable-next-line no-console
+      console.error("[process] Uncaught exception (logger chưa sẵn sàng):", err);
+    }
+  });
+
   // 1. Config - fail-fast nếu thiếu biến môi trường
   const config = loadConfig();
   initLogger(config.constants.logDir);
@@ -107,7 +142,7 @@ async function main(): Promise<void> {
 
   const safeModeService = createSafeModeService(
     deviceCommands,
-    config.constants.restrictedAppsFilePath,
+    config.constants.sensitiveAppsFilePath,
     bus
   );
   const focusService = createFocusService(

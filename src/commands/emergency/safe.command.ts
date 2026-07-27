@@ -18,7 +18,29 @@ export function createSafeCommand(safeModeService: SafeModeServiceApi): CommandD
         await safeModeService.disable();
         return "🛡️ Safe mode đã TẮT.";
       }
-      throw new ValidationError("Cú pháp: /safe on|off");
+      if (sub === "blockadd") {
+        const bundleId = ctx.effectiveArgs[1];
+        if (!bundleId) throw new ValidationError("Cú pháp: /safe <password> blockadd <bundleId>");
+        const appliedNow = await safeModeService.addBlockApplication(bundleId);
+        return appliedNow
+          ? `🚫 Đã thêm "${bundleId}" vào danh sách chặn của Safe Mode và áp dụng NGAY (đang bật).`
+          : `🚫 Đã thêm "${bundleId}" vào danh sách chặn của Safe Mode. Sẽ áp dụng khi bật Safe Mode lần tới (hiện đang TẮT).`;
+      }
+      if (sub === "blockremove") {
+        const bundleId = ctx.effectiveArgs[1];
+        if (!bundleId) throw new ValidationError("Cú pháp: /safe <password> blockremove <bundleId>");
+        const appliedNow = await safeModeService.removeBlockApplication(bundleId);
+        return appliedNow
+          ? `✅ Đã gỡ "${bundleId}" khỏi danh sách chặn của Safe Mode và áp dụng NGAY (đang bật).`
+          : `✅ Đã gỡ "${bundleId}" khỏi danh sách chặn của Safe Mode. Sẽ áp dụng khi bật Safe Mode lần tới (hiện đang TẮT).`;
+      }
+      if (sub === "blocklist") {
+        const list = await safeModeService.listBlockApplications();
+        return list.length === 0
+          ? "📋 Danh sách chặn của Safe Mode đang trống (data/sensitive_apps.json)."
+          : list.map((b) => `- ${b}`).join("\n");
+      }
+      throw new ValidationError("Cú pháp: /safe on|off|blockadd <bundleId>|blockremove <bundleId>|blocklist");
     },
   };
 }

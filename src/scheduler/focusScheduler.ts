@@ -281,12 +281,26 @@ export class FocusScheduler {
 
       if (schedule.recurring.startTime === hhmm && !this.firedRecurringToday.has(startKey)) {
         this.firedRecurringToday.add(startKey);
-        await this.onRecurringTrigger("start");
+        try {
+          await this.onRecurringTrigger("start");
+        } catch (err) {
+          getLogger().error(
+            "[focusScheduler] onRecurringTrigger('start') lỗi - Focus có thể KHÔNG được bật dù đã sang khung giờ schedule",
+            { scheduleId: schedule.id, error: (err as Error).message }
+          );
+        }
       }
       if (schedule.recurring.endTime === hhmm && !this.firedRecurringToday.has(endKey)) {
         this.firedRecurringToday.add(endKey);
         this.clearBreak(); // hết ngày làm việc thì break (nếu có) cũng hết ý nghĩa
-        await this.onRecurringTrigger("end");
+        try {
+          await this.onRecurringTrigger("end");
+        } catch (err) {
+          getLogger().error("[focusScheduler] onRecurringTrigger('end') lỗi", {
+            scheduleId: schedule.id,
+            error: (err as Error).message,
+          });
+        }
       }
     }
   }

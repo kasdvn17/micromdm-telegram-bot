@@ -49,3 +49,30 @@ export function removeBlacklistBundleId(blacklistFilePath: string, bundleId: str
   writeJsonState(blacklistFilePath, data);
   return data.bundleIds;
 }
+
+/**
+ * Danh sách app riêng cho Safe Mode (data/sensitive_apps.json) - ĐỘC LẬP
+ * hoàn toàn với danh sách của Focus Mode (restricted-apps.json). Dùng khi
+ * cho người khác mượn máy: chặn các app riêng tư (ngân hàng, tin nhắn...)
+ * mà không cần đụng tới cấu hình Focus Mode hằng ngày.
+ */
+export function loadSensitiveBundleIds(sensitiveAppsFilePath: string): string[] {
+  const data = readJsonState<BundleIdListFile>(sensitiveAppsFilePath, { bundleIds: [] });
+  return data.bundleIds;
+}
+
+export function addSensitiveBundleId(sensitiveAppsFilePath: string, bundleId: string): string[] {
+  const data = readJsonState<BundleIdListFile>(sensitiveAppsFilePath, { bundleIds: [] });
+  if (!data.bundleIds.includes(bundleId)) {
+    data.bundleIds.push(bundleId);
+    writeJsonState(sensitiveAppsFilePath, data);
+  }
+  return data.bundleIds;
+}
+
+export function removeSensitiveBundleId(sensitiveAppsFilePath: string, bundleId: string): string[] {
+  const data = readJsonState<BundleIdListFile>(sensitiveAppsFilePath, { bundleIds: [] });
+  data.bundleIds = data.bundleIds.filter((id) => id !== bundleId);
+  writeJsonState(sensitiveAppsFilePath, data);
+  return data.bundleIds;
+}

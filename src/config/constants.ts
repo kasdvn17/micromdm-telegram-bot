@@ -37,6 +37,10 @@ export interface AppConstants {
   /** Đường dẫn file JSON chứa Bundle ID cho Focus Mode (RestrictedApplications) */
   restrictedAppsFilePath: string;
 
+  /** Đường dẫn file JSON chứa Bundle ID riêng cho Safe Mode (data/sensitive_apps.json),
+   *  độc lập với danh sách của Focus Mode - dùng khi cho người khác mượn máy. */
+  sensitiveAppsFilePath: string;
+
   /**
    * Đường dẫn file .plist (mobileconfig XML) chứa profile MẶC ĐỊNH tự động
    * cài khi phát hiện enrollment mới. Lưu ra file thay vì hardcode trong code
@@ -113,6 +117,8 @@ export function loadConstants(env: NodeJS.ProcessEnv = process.env): AppConstant
     restrictedAppsFilePath:
       env.RESTRICTED_APPS_FILE_PATH?.trim() ||
       path.join(DATA_DIR, "restricted-apps.json"),
+    sensitiveAppsFilePath:
+      env.SENSITIVE_APPS_FILE_PATH?.trim() || path.join(DATA_DIR, "sensitive_apps.json"),
     defaultProfilePlistPath:
       env.DEFAULT_PROFILE_PLIST_PATH?.trim() || path.join(DATA_DIR, "default.plist"),
     checkinStateFilePath:
