@@ -29,18 +29,20 @@
 			<true/>
 		</dict>
 		<dict>
+			<key>AssetTagInformation</key>
+			<string>@kasdvn17</string>
+			<key>LockScreenFootnote</key>
+			<string>@kasdvn17</string>
 			<key>PayloadDisplayName</key>
-			<string>Managed Content Information</string>
+			<string>Lock Screen Message</string>
 			<key>PayloadIdentifier</key>
-			<string>com.apple.managedcontentinfo.7e5a8c12-321a-4fbc-b456-112c3b4a5d6e</string>
+			<string>com.apple.shareddeviceconfiguration.71e770c2-f65f-4c1f-8562-70a104c2b1af</string>
 			<key>PayloadType</key>
-			<string>com.apple.managedcontentinfo</string>
+			<string>com.apple.shareddeviceconfiguration</string>
 			<key>PayloadUUID</key>
-			<string>7e5a8c12-321a-4fbc-b456-112c3b4a5d6e</string>
+			<string>71e770c2-f65f-4c1f-8562-70a104c2b1af</string>
 			<key>PayloadVersion</key>
 			<integer>1</integer>
-			<key>AssetTag</key>
-			<string>@kasdvn17</string>
 		</dict>
 	</array>
 	<key>PayloadDisplayName</key>
