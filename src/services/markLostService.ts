@@ -7,6 +7,8 @@ import { getLogger } from "../utils/logger";
 
 export interface MarkLostServiceApi {
   toggle(): Promise<{ nowActive: boolean }>;
+  enable(): Promise<void>;
+  disable(): Promise<void>;
   isActive(): boolean;
   /** Gọi 1 lần lúc khởi động app: nếu state persisted đang active, resume poller đúng logic. */
   resumeIfActive(): void;
@@ -39,6 +41,13 @@ export function createMarkLostService(
         timestamp: location.fetchedAt,
       });
       bus.publish({ type: "marklost.heartbeat", online: true });
+
+      try {
+        const info = await deviceCommands.getDeviceInfo();
+        bus.publish({ type: "marklost.deviceinfo", info });
+      } catch (err) {
+        getLogger().warn("[markLostService] Lấy device info thất bại", { error: (err as Error).message });
+      }
     } catch (err) {
       getLogger().warn("[markLostService] Poll location thất bại - coi như offline", {
         error: (err as Error).message,
@@ -60,6 +69,22 @@ export function createMarkLostService(
       saveState({ active: true, startedAt: new Date().toISOString() });
       bus.publish({ type: "marklost.enabled" });
       return { nowActive: true };
+    },
+    async enable(): Promise<void> {
+      const state = loadState();
+      if (!state.active) {
+        poller.start(pollIntervalMs, onTick);
+        saveState({ active: true, startedAt: new Date().toISOString() });
+        bus.publish({ type: "marklost.enabled" });
+      }
+    },
+    async disable(): Promise<void> {
+      const state = loadState();
+      if (state.active) {
+        poller.stop();
+        saveState({ active: false });
+        bus.publish({ type: "marklost.disabled" });
+      }
     },
     isActive(): boolean {
       return loadState().active;

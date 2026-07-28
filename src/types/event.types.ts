@@ -1,3 +1,5 @@
+import { DeviceInformationResult } from "./micromdm.types";
+
 export type AppEvent =
   | { type: "device.enrolled"; deviceUUID: string }
   | {
@@ -33,6 +35,10 @@ export type AppEvent =
       lat: number;
       lng: number;
       timestamp: string;
+    }
+  | {
+      type: "marklost.deviceinfo";
+      info: DeviceInformationResult;
     }
   | { type: "marklost.heartbeat"; online: boolean }
   | { type: "lostmode.enabled" }

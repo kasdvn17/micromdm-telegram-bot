@@ -35,10 +35,11 @@ import {
   createAuthTestCommand,
 } from "./commands/normal/system.command";
 import { createBlacklistCommand } from "./commands/normal/blacklist.command";
+import { createSearchCommand } from "./commands/normal/search.command";
 import { createDeviceCommands } from "./commands/emergency/device.command";
 import { createUnlockCommand, createLostCommand } from "./commands/emergency/lostAndUnlock.command";
 import { createSafeCommand } from "./commands/emergency/safe.command";
-import { createMarkLostCommand } from "./commands/emergency/markLost.command";
+import { createManageAppCommand } from "./commands/emergency/manageapp.command";
 import { createApiCommand } from "./commands/emergency/api.command";
 import {
   createInstallAppCommand,
@@ -204,12 +205,13 @@ async function main(): Promise<void> {
     createLogsCommand(config.constants.logDir),
     createHistoryCommand(config.constants.historyFilePath),
     createAuthTestCommand(emergencyAuthService),
+    createSearchCommand(),
     createBlacklistCommand(blacklistService),
     ...createDeviceCommands(deviceCommands, deviceInfoService),
     createUnlockCommand(deviceCommands),
-    createLostCommand(deviceCommands, bus),
+    createLostCommand(deviceCommands, bus, markLostService),
     createSafeCommand(safeModeService),
-    createMarkLostCommand(markLostService),
+    createManageAppCommand(appManagementService),
     createApiCommand(deviceCommands, bus),
     createInstallAppCommand(appManagementService),
     createListAppsCommand(appManagementService),
@@ -233,7 +235,7 @@ async function main(): Promise<void> {
     if (
       primaryChatId === null &&
       msg.from?.username?.toLowerCase().replace(/^@/, "") ===
-        config.secrets.authorizedTelegramUsername
+      config.secrets.authorizedTelegramUsername
     ) {
       primaryChatId = msg.chat.id;
       notificationService.setChatId(primaryChatId);

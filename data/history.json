@@ -47,5 +47,18 @@
     "event": {
       "type": "lostmode.enabled"
     }
+  },
+  {
+    "timestamp": "2026-07-27T08:34:25.201Z",
+    "event": {
+      "type": "profile.installed",
+      "identifier": "com.personal.micromdmbot.focus"
+    }
+  },
+  {
+    "timestamp": "2026-07-27T08:34:25.204Z",
+    "event": {
+      "type": "focus.enabled"
+    }
   }
 ]

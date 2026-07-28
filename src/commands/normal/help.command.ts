@@ -32,6 +32,8 @@ Quy ước: lệnh Emergency/Two-Factor đặt password ngay sau tên lệnh -
 /blacklist add|remove <bundleId> — thêm/gỡ app khỏi blacklist (độc lập với Focus)
 /blacklist list — xem blacklist
 
+/search <bundleId1> [bundleId2]... — tìm thông tin ứng dụng trên iTunes Store VN
+
 /ping — kiểm tra bot còn sống
 /health — uptime của bot
 /whoami — xem Telegram ID/username của bạn
@@ -55,12 +57,14 @@ Quy ước: lệnh Emergency/Two-Factor đặt password ngay sau tên lệnh -
 /safe on|off <password> — chặn app riêng tư (data/sensitive_apps.json), độc lập hoàn toàn với Focus, chỉ tắt bằng /safe off
 /safe blockadd|blockremove <password> <bundleId> — thêm/gỡ app khỏi danh sách chặn của Safe Mode
 /safe blocklist <password> — xem danh sách app bị Safe Mode chặn
-/mark <password> lost — bật/tắt theo dõi vị trí+heartbeat kín đáo (không bật Lost Mode thật)
+/securityinfo <password> — xem thông tin bảo mật của thiết bị (mã hoá, mật khẩu...)
+/wallpaper <password> <url-ảnh> — đổi hình nền (Lock & Home screen) từ link ảnh
 
 /installapp <password> manifest <https-url> — cài managed app từ Manifest.plist
 /installapp <password> appstore <iTunesStoreID> — cài app từ App Store (không đảm bảo managed)
 /listapps <password> [managed|all] — liệt kê app đã cài
 /removeapp <password> <bundleId> — gỡ app (chỉ app đang managed)
+/manageapp <password> enable|add <bundleId>|list — quản lý và tự động convert app sang dạng managed
 
 /profiles <password> — liệt kê Configuration Profile trên máy
 /installprofile <password> <filename> — cài file .plist trong thư mục data/, vd default.plist

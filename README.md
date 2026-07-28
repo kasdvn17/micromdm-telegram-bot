@@ -15,7 +15,6 @@ Một Telegram Bot cá nhân viết bằng TypeScript, đóng vai trò client/co
 - **Focus Mode**: bật giới hạn ứng dụng theo yêu cầu (`/focus on`), theo thời lượng (`/focus 90m`), hoặc theo lịch lặp lại hằng ngày/theo thứ (`/focus schedule add 06:00 23:00`). Có danh sách app bị chặn riêng cho Focus (`/focus blockadd|blockremove|blocklist`), chỉ đẩy xuống máy ngay khi Focus/Safe Mode đang thực sự bật - nếu đang tắt thì chỉ lưu lại, áp dụng ở lần bật kế tiếp.
 - **Safe Mode**: bản Focus vô thời hạn, độc lập với schedule/timer, chỉ tắt bằng `/safe off`.
 - **Blacklist ứng dụng**: chặn app cụ thể, độc lập hoàn toàn với Focus Mode (profile riêng), hỗ trợ cả `blacklistedAppBundleIDs` (trước iOS 15) lẫn `blockedAppBundleIDs` (iOS 15+).
-- **Mark Lost (âm thầm)**: chỉ poll vị trí + heartbeat online/offline định kỳ, KHÔNG bật Lost Mode thật trên thiết bị - tránh "bứt dây động rừng" nếu ai đó đang cầm máy.
 - **Bảo mật 3 lớp** (xem chi tiết bên dưới), chống timing attack bằng `crypto.timingSafeEqual` khi so khớp mật khẩu.
 - **`/unlock` và Safe Mode độc lập hoàn toàn**: `/unlock` chỉ gửi lệnh mở khoá máy (ClearPasscode), không còn tự động tắt Safe Mode - muốn tắt phải dùng riêng `/safe off`.
 - **Lưu trạng thái bằng file JSON** trong `data/` - không cần Database ngoài.
@@ -45,6 +44,7 @@ Một Telegram Bot cá nhân viết bằng TypeScript, đóng vai trò client/co
 - `/focus on|off|status|remaining|extend <d>|cancel` - bật/tắt Focus Mode thủ công hoặc theo thời lượng (`/focus 90m`, `/focus 2h`).
 - `/focus schedule list|add <start> <end> [days]|enable <id>|disable <id>` - quản lý lịch lặp lại. Vd: `/focus schedule add 06:00 23:00` (mặc định cả 7 ngày), hoặc thêm `1,2,3,4,5` để chỉ áp dụng Thứ 2 - Thứ 6 (0=CN...6=T7).
 - `/focus blockadd|blockremove <bundleId>` / `/focus blocklist` - quản lý danh sách app bị chặn riêng của Focus Mode.
+- `/search <bundleId1> [bundleId2]...` - tìm thông tin ứng dụng (Tên, iTunes Store ID) trên iTunes Store Việt Nam bằng Bundle ID.
 
 ### Emergency (thêm mật khẩu ngay sau tên lệnh)
 - `/lock <password>` - khoá máy ngay.
@@ -55,10 +55,12 @@ Một Telegram Bot cá nhân viết bằng TypeScript, đóng vai trò client/co
 - `/lost <password> enable <phone> [footnote]` / `/lost <password> disable` - bật/tắt Lost Mode thật trên thiết bị.
 - `/unlock <password>` - gửi lệnh mở khoá máy. **Không** còn ảnh hưởng tới Safe Mode.
 - `/safe <password> on|off` - bật/tắt Safe Mode (Focus vô thời hạn), độc lập với `/unlock`.
-- `/mark <password> lost` - bật/tắt chế độ theo dõi âm thầm (chỉ poll vị trí, không bật Lost Mode thật).
+- `/securityinfo <password>` - xem thông tin bảo mật thiết bị (có đặt mật khẩu không, đang mã hoá không...).
+- `/wallpaper <password> <url-ảnh>` - đổi hình nền (Lock & Home screen) thông qua link ảnh.
 - `/installapp <password> manifest <https-url>` / `/installapp <password> appstore <iTunesStoreID>` - cài app (lưu ý app App Store không qua VPP có thể không cài được ở dạng managed).
 - `/listapps <password> [managed|all]` - liệt kê app đã cài.
 - `/removeapp <password> <bundleId>` - gỡ app (chỉ hoạt động với app managed).
+- `/manageapp <password> enable|add <bundleId>|list` - lưu trữ danh sách bundle ID và tự động tìm kiếm, gửi lệnh cài đặt để chuyển đổi ứng dụng sang dạng managed.
 - `/profiles <password>` - liệt kê toàn bộ Configuration Profile đã cài trên máy.
 - `/removeprofile <password> <profileIdentifier>` - gỡ 1 profile theo Profile Identifier (vd `com.personal.micromdmbot.focus`) - **không** phải app Bundle ID. Thất bại nếu profile có `PayloadRemovalDisallowed=true` hoặc yêu cầu removal passcode (vd profile MDM gốc dùng để enroll máy).
 

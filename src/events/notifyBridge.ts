@@ -5,7 +5,15 @@ import { NotificationServiceApi } from "../services/notificationService";
 /**
  * Đã rollback: KHÔNG lọc heartbeat nữa - mọi event đều được notify.
  */
-function shouldNotify(_event: AppEvent): boolean {
+function shouldNotify(event: AppEvent): boolean {
+  if (
+    (event.type === "mdm.command.queued" ||
+      event.type === "mdm.command.acked" ||
+      event.type === "mdm.command.succeeded") &&
+    event.command === "DeviceInformation"
+  ) {
+    return false;
+  }
   return true;
 }
 
@@ -53,6 +61,14 @@ function formatEvent(event: AppEvent): string {
       return `🕵️ Mark Lost: TẮT`;
     case "marklost.location":
       return `📍 [Mark Lost] Vị trí: ${event.lat}, ${event.lng} lúc ${event.timestamp}`;
+    case "marklost.deviceinfo": {
+      const info = event.info;
+      const batteryStr = info.batteryLevel !== undefined ? Math.round(info.batteryLevel * 100) + "%" : "?";
+      return `📊 [Mark Lost] Device Info:
+📱 ${info.deviceName ?? "?"} (${info.modelName ?? "?"})
+OS: ${info.osVersion ?? "?"}
+Pin: ${batteryStr} (${info.batteryState ?? "?"})`;
+    }
     case "marklost.heartbeat":
       return `💓 [Mark Lost] Máy đang ${event.online ? "ONLINE" : "OFFLINE"}`;
     case "lostmode.enabled":

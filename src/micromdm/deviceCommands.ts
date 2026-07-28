@@ -418,4 +418,41 @@ export class DeviceCommands {
 </plist>`;
     return this.client.sendRawCommand(this.deviceUUID, "Settings", plistXml);
   }
+
+  async getSecurityInfo(): Promise<Record<string, unknown>> {
+    const result: MdmCommandResult = await this.client.sendCommandAndWait({
+      udid: this.deviceUUID,
+      request_type: "SecurityInfo",
+    });
+    return (result.raw?.["SecurityInfo"] as Record<string, unknown>) ?? result.raw ?? {};
+  }
+
+  setWallpaper(base64Data: string, where: number = 3): Promise<MdmCommandQueuedResult> {
+    const commandUUID = randomUUID();
+    const plistXml = `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+\t<key>Command</key>
+\t<dict>
+\t\t<key>RequestType</key>
+\t\t<string>Settings</string>
+\t\t<key>Settings</key>
+\t\t<array>
+\t\t\t<dict>
+\t\t\t\t<key>Item</key>
+\t\t\t\t<string>Wallpaper</string>
+\t\t\t\t<key>Image</key>
+\t\t\t\t<data>${base64Data}</data>
+\t\t\t\t<key>Where</key>
+\t\t\t\t<integer>${where}</integer>
+\t\t\t</dict>
+\t\t</array>
+\t</dict>
+\t<key>CommandUUID</key>
+\t<string>${commandUUID}</string>
+</dict>
+</plist>`;
+    return this.client.sendRawCommand(this.deviceUUID, "Settings", plistXml);
+  }
 }

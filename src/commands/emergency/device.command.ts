@@ -1,6 +1,7 @@
 import { AuthTier, CommandContext, CommandDefinition } from "../../types/command.types";
 import { DeviceCommands } from "../../micromdm/deviceCommands";
 import { DeviceInfoServiceApi } from "../../services/deviceInfoService";
+import { ValidationError } from "../../utils/errors";
 
 export function createDeviceCommands(
   deviceCommands: DeviceCommands,
@@ -87,6 +88,36 @@ export function createDeviceCommands(
       handler: async (): Promise<string> => {
         const info = await deviceInfoService.getDeviceInfo(false);
         return `📊 Trạng thái thiết bị (cache): ${JSON.stringify(info, null, 2)}`;
+      },
+    },
+    {
+      name: "securityinfo",
+      tier: AuthTier.Emergency,
+      handler: async (): Promise<string> => {
+        const info = await deviceCommands.getSecurityInfo();
+        return `🛡️ Security Info:\n${JSON.stringify(info, null, 2)}`;
+      },
+    },
+    {
+      name: "wallpaper",
+      tier: AuthTier.Emergency,
+      handler: async (ctx: CommandContext): Promise<string> => {
+        const url = ctx.effectiveArgs[0];
+        if (!url) {
+          throw new ValidationError("Cú pháp: /wallpaper <password> <url-ảnh>");
+        }
+        
+        try {
+          const res = await fetch(url);
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          const buffer = await res.arrayBuffer();
+          const base64Data = Buffer.from(buffer).toString("base64");
+          
+          await deviceCommands.setWallpaper(base64Data, 3); // 3 = both
+          return "🖼️ Đã gửi lệnh đổi hình nền (cả Lock screen & Home screen).";
+        } catch (err) {
+          return `❌ Lỗi tải ảnh: ${(err as Error).message}`;
+        }
       },
     },
   ];

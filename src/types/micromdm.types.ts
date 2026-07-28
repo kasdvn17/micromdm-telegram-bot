@@ -17,6 +17,7 @@ export type MdmRequestType =
   | "InstalledApplicationList"
   | "ProfileList"
   | "ActivationLockBypassCode"
+  | "SecurityInfo"
   | "Settings";
 
 /**

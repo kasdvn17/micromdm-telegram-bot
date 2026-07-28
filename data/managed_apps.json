@@ -1,0 +1,31 @@
+{
+  "bundleIds": [
+    "com.burbn.barcelona",
+    "com.vnpassbus.customer",
+    "com.google.ios.youtube",
+    "xyz.be.customer",
+    "app.alextran.immich",
+    "com.locket.Locket",
+    "com.facebook.Facebook",
+    "com.google.Gmail",
+    "com.microsoft.azureauthenticator",
+    "com.facebook.Messenger",
+    "com.microsoft.skydrive",
+    "com.google.photos",
+    "vn.com.vng.zingzalo",
+    "com.vcb.VCB",
+    "com.hammerandchisel.discord",
+    "com.viettel.citizens.hanoi",
+    "vn.com.techcombank.bb.app",
+    "com.8bit.bitwarden",
+    "com.burbn.instagram",
+    "com.seafile.seafilePro",
+    "com.google.Drive",
+    "com.mbmobile",
+    "com.vietnamesports.toppay",
+    "com.mservice.com.vn.MoMoTransfer",
+    "com.vietinbank.mobilebanking",
+    "com.ss.iphone.ugc.Ame",
+    "ph.telegra.Telegraph"
+  ]
+}

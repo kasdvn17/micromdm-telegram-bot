@@ -67,9 +67,8 @@ export interface AppConstants {
   commandResultTimeoutMs: number;
 }
 
-const DEFAULT_DEVICE_INFO_POLL_INTERVAL_MS = 5 * 60 * 1000; // 5 phút
-const DEFAULT_MARK_LOST_POLL_INTERVAL_MS = 90 * 1000; // 90 giây, < 2 phút theo yêu cầu
-const MARK_LOST_MAX_INTERVAL_MS = 2 * 60 * 1000; // 2 phút - ngưỡng cứng, không được vượt
+const DEFAULT_DEVICE_INFO_POLL_INTERVAL_MS = 60 * 60 * 1000; // 1 tiếng
+const DEFAULT_MARK_LOST_POLL_INTERVAL_MS = 5 * 60 * 1000; // 5 phút
 
 const DATA_DIR = path.resolve(process.cwd(), "data");
 
@@ -91,13 +90,6 @@ export function loadConstants(env: NodeJS.ProcessEnv = process.env): AppConstant
     env.MARK_LOST_POLL_INTERVAL_MS,
     DEFAULT_MARK_LOST_POLL_INTERVAL_MS
   );
-
-  if (markLostPollIntervalMs >= MARK_LOST_MAX_INTERVAL_MS) {
-    throw new Error(
-      `[config/constants] MARK_LOST_POLL_INTERVAL_MS phải nhỏ hơn ${MARK_LOST_MAX_INTERVAL_MS}ms (2 phút), ` +
-        `hiện tại đang cấu hình ${markLostPollIntervalMs}ms.`
-    );
-  }
 
   return {
     dataDir: DATA_DIR,
