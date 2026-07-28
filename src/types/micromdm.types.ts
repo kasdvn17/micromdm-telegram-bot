@@ -18,6 +18,8 @@ export type MdmRequestType =
   | "ProfileList"
   | "ActivationLockBypassCode"
   | "SecurityInfo"
+  | "NetworkInformation"
+  | "RefreshCellularPlans"
   | "Settings";
 
 /**

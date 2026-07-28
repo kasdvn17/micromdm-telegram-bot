@@ -58,7 +58,9 @@ Quy ước: lệnh Emergency/Two-Factor đặt password ngay sau tên lệnh -
 /safe blockadd|blockremove <password> <bundleId> — thêm/gỡ app khỏi danh sách chặn của Safe Mode
 /safe blocklist <password> — xem danh sách app bị Safe Mode chặn
 /securityinfo <password> — xem thông tin bảo mật của thiết bị (mã hoá, mật khẩu...)
+/networkinformation <password> — xem thông tin mạng hiện tại (WiFi SSID, MAC, IP...)
 /wallpaper <password> <url-ảnh> — đổi hình nền (Lock & Home screen) từ link ảnh
+/refreshcellularplans <password> — yêu cầu thiết bị cập nhật lại gói cước cellular/eSIM
 
 /installapp <password> manifest <https-url> — cài managed app từ Manifest.plist
 /installapp <password> appstore <iTunesStoreID> — cài app từ App Store (không đảm bảo managed)

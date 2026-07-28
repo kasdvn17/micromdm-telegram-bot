@@ -56,7 +56,9 @@ Một Telegram Bot cá nhân viết bằng TypeScript, đóng vai trò client/co
 - `/unlock <password>` - gửi lệnh mở khoá máy. **Không** còn ảnh hưởng tới Safe Mode.
 - `/safe <password> on|off` - bật/tắt Safe Mode (Focus vô thời hạn), độc lập với `/unlock`.
 - `/securityinfo <password>` - xem thông tin bảo mật thiết bị (có đặt mật khẩu không, đang mã hoá không...).
+- `/networkinformation <password>` - xem thông tin mạng hiện tại (WiFi SSID, MAC, địa chỉ IP, thông tin SIM...).
 - `/wallpaper <password> <url-ảnh>` - đổi hình nền (Lock & Home screen) thông qua link ảnh.
+- `/refreshcellularplans <password>` - yêu cầu thiết bị cập nhật lại gói cước cellular/eSIM.
 - `/installapp <password> manifest <https-url>` / `/installapp <password> appstore <iTunesStoreID>` - cài app (lưu ý app App Store không qua VPP có thể không cài được ở dạng managed).
 - `/listapps <password> [managed|all]` - liệt kê app đã cài.
 - `/removeapp <password> <bundleId>` - gỡ app (chỉ hoạt động với app managed).

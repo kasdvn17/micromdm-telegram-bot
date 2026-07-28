@@ -455,4 +455,29 @@ export class DeviceCommands {
 </plist>`;
     return this.client.sendRawCommand(this.deviceUUID, "Settings", plistXml);
   }
+
+  /**
+   * NetworkInformation: trả về thông tin mạng hiện tại của thiết bị,
+   * bao gồm SSID, BSSID (WiFi), địa chỉ IP, thông tin SIM/eSIM, v.v.
+   */
+  async getNetworkInfo(): Promise<Record<string, unknown>> {
+    const result: MdmCommandResult = await this.client.sendCommandAndWait({
+      udid: this.deviceUUID,
+      request_type: "NetworkInformation",
+    });
+    // Apple trả kết quả ở top-level raw (không bọc trong sub-key)
+    return result.raw ?? {};
+  }
+
+  /**
+   * RefreshCellularPlans: yêu cầu thiết bị cập nhật/tải lại thông tin
+   * eSIM/cellular plan từ carrier. Yêu cầu thiết bị phải có eSIM hỗ trợ.
+   * Kết quả trả về ngay (fire-and-forget, không cần chờ Acknowledge).
+   */
+  refreshCellularPlans(): Promise<MdmCommandQueuedResult> {
+    return this.client.queueCommand({
+      udid: this.deviceUUID,
+      request_type: "RefreshCellularPlans",
+    });
+  }
 }

@@ -120,5 +120,44 @@ export function createDeviceCommands(
         }
       },
     },
+    {
+      name: "networkinformation",
+      tier: AuthTier.Emergency,
+      handler: async (): Promise<string> => {
+        const raw = await deviceCommands.getNetworkInfo();
+        // Format các trường quan trọng lên đầu, dump raw phần còn lại
+        const keyMap: Record<string, string> = {
+          SSID: "📶 WiFi SSID",
+          BSSID: "📡 BSSID",
+          LocalHostName: "🖥️ Hostname",
+          HostName: "🖥️ Hostname",
+          EthernetMAC: "🔗 Ethernet MAC",
+          WiFiMAC: "📲 WiFi MAC",
+          BluetoothMAC: "🔵 Bluetooth MAC",
+        };
+        const shown = new Set<string>();
+        let summary = "🌐 Network Information:\n";
+        for (const [key, label] of Object.entries(keyMap)) {
+          if (raw[key] !== undefined) {
+            summary += `${label}: ${raw[key]}\n`;
+            shown.add(key);
+          }
+        }
+        // Dump phần còn lại gọn hơn
+        const rest = Object.entries(raw)
+          .filter(([k]) => !shown.has(k))
+          .map(([k, v]) => `${k}: ${JSON.stringify(v)}`)
+          .join("\n");
+        return rest ? `${summary}\n📋 Chi tiết:\n${rest}` : summary.trim();
+      },
+    },
+    {
+      name: "refreshcellularplans",
+      tier: AuthTier.Emergency,
+      handler: async (): Promise<string> => {
+        await deviceCommands.refreshCellularPlans();
+        return "📶 Đã yêu cầu thiết bị cập nhật lại gói cước cellular/eSIM.";
+      },
+    },
   ];
 }
