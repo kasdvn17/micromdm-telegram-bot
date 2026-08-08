@@ -25,6 +25,13 @@ export interface SchedulerState {
    *  hiệu lực khi qua mốc thời gian này - scheduler tick sẽ tự bật lại Focus
    *  nếu vẫn còn đang trong khung giờ recurring. */
   breakUntil?: string;
+  /** Số lần + tổng thời gian đã dùng /focus break TRONG NGÀY "date"
+   *  ("YYYY-MM-DD"). Tự reset khi sang ngày khác (so sánh date !== hôm nay). */
+  breakUsage?: {
+    date: string;
+    count: number;
+    totalMs: number;
+  };
 }
 
 export interface MarkLostState {

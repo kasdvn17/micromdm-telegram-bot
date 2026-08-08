@@ -8,7 +8,14 @@ type RecurringTriggerCallback = (action: "start" | "end") => Promise<void>;
 type BreakExpireCallback = () => Promise<void>;
 
 function todayDateStr(now: Date): string {
-  return now.toISOString().slice(0, 10);
+  // QUAN TRỌNG: phải dùng local date (khớp với hhmmOf() dùng getHours/getMinutes local),
+  // KHÔNG dùng now.toISOString() (UTC) - nếu không, với server ở múi giờ UTC+N,
+  // trong khoảng giờ đầu ngày local (00:00 tới N giờ sáng) ngày UTC vẫn là ngày
+  // hôm trước, làm lệch so sánh skippedDate/dedup key với hhmm (đã là local).
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, "0");
+  const day = String(now.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
 }
 
 function hhmmOf(now: Date): string {
@@ -26,6 +33,11 @@ function hhmmOf(now: Date): string {
  * occurrence của schedule trong NGÀY HÔM NAY, tự hết hiệu lực sang ngày mới).
  */
 export class FocusScheduler {
+  /** Số lần /focus break tối đa trong 1 ngày. */
+  static readonly MAX_BREAKS_PER_DAY = 4;
+  /** Tổng thời gian TẤT CẢ các lần /focus break cộng dồn tối đa trong 1 ngày. */
+  static readonly MAX_BREAK_TOTAL_MS_PER_DAY = 60 * 60 * 1000; // 1 giờ
+
   private tickHandle: NodeJS.Timeout | null = null;
   private readonly firedRecurringToday = new Set<string>(); // key: `${scheduleId}:${dateStr}:${start|end}`
 
@@ -175,11 +187,33 @@ export class FocusScheduler {
     return Math.max(0, new Date(state.breakUntil).getTime() - now.getTime());
   }
 
-  /** Bắt đầu tạm ngưng Focus trong `ms` - CHỈ hợp lệ khi đang trong 1 khung
-   *  giờ recurring active (caller phải tự kiểm tra trước khi gọi). */
-  startBreak(ms: number): void {
+  /**
+   * Số lần + tổng thời gian đã dùng /focus break HÔM NAY. Tự trả về {0, 0}
+   * nếu chưa dùng lần nào hôm nay hoặc dữ liệu lưu là của ngày khác (đã
+   * sang ngày mới - giới hạn tự reset theo ngày).
+   */
+  getBreakUsageToday(now: Date = new Date()): { count: number; totalMs: number } {
     const state = this.readState();
-    state.breakUntil = new Date(Date.now() + ms).toISOString();
+    const dateStr = todayDateStr(now);
+    if (!state.breakUsage || state.breakUsage.date !== dateStr) {
+      return { count: 0, totalMs: 0 };
+    }
+    return { count: state.breakUsage.count, totalMs: state.breakUsage.totalMs };
+  }
+
+  /** Bắt đầu tạm ngưng Focus trong `ms` - CHỈ hợp lệ khi đang trong 1 khung
+   *  giờ recurring active VÀ chưa vượt giới hạn (caller - focusService -
+   *  PHẢI tự kiểm tra cả 2 điều kiện này trước khi gọi, hàm này chỉ ghi
+   *  nhận usage chứ không tự chặn). */
+  startBreak(ms: number, now: Date = new Date()): void {
+    const state = this.readState();
+    const dateStr = todayDateStr(now);
+    if (!state.breakUsage || state.breakUsage.date !== dateStr) {
+      state.breakUsage = { date: dateStr, count: 0, totalMs: 0 };
+    }
+    state.breakUsage.count += 1;
+    state.breakUsage.totalMs += ms;
+    state.breakUntil = new Date(now.getTime() + ms).toISOString();
     this.writeState(state);
   }
 

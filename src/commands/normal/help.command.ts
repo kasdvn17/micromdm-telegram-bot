@@ -20,11 +20,11 @@ Quy ước: lệnh Emergency/Two-Factor đặt password ngay sau tên lệnh -
 /focus status|remaining — xem trạng thái/thời gian còn lại
 /focus extend <d> — gia hạn Focus theo duration đang chạy
 /focus cancel — huỷ Focus session hiện tại (bị chặn nếu đang trong schedule)
-/focus break [d] — tạm ngưng Focus khi đang trong schedule, mặc định 15m, tự bật lại khi hết giờ
+/focus break [d] — tạm ngưng Focus khi đang trong schedule, mặc định 15m, tự bật lại khi hết giờ (tối đa 4 lần/ngày, tổng 1 giờ/ngày)
 /focus schedule list — xem danh sách schedule
 /focus schedule add <start> <end> [days] — tạo lịch lặp lại, vd 06:00 23:00 1,2,3,4,5
 /focus schedule enable|disable <id> — bật/tắt 1 schedule
-/focus schedule skip [id] — bỏ qua schedule HÔM NAY (không truyền id thì tự tìm)
+/focus schedule skip [id] — bỏ qua schedule HÔM NAY (chỉ dùng được Thứ 7/Chủ Nhật, không truyền id thì tự tìm)
 /focus blockadd|blockremove <bundleId> — thêm/gỡ app khỏi danh sách chặn của Focus
 /focus blocklist — xem danh sách app bị chặn bởi Focus
 

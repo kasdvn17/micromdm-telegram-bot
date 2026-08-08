@@ -23,20 +23,28 @@ export function createFocusCommand(focusService: FocusServiceApi): CommandDefini
 
         case "status": {
           const status = focusService.status();
+          const remaining = focusService.breakUsageRemainingToday();
+          const breakInfo = `\nBreak còn lại hôm nay: ${remaining.breaksRemaining} lần / ${formatDuration(remaining.totalMsRemaining)}.`;
           if (status.onBreak) {
-            return `🎯 Focus đang TẠM NGƯNG (break) - còn ${formatDuration(status.breakRemainingMs ?? 0)}, sẽ tự bật lại nếu vẫn trong khung giờ schedule.`;
+            return `🎯 Focus đang TẠM NGƯNG (break) - còn ${formatDuration(status.breakRemainingMs ?? 0)}, sẽ tự bật lại nếu vẫn trong khung giờ schedule.${breakInfo}`;
           }
           const scheduleNote = status.withinSchedule ? " (theo schedule)" : "";
-          return status.active
-            ? `🎯 Focus đang BẬT${scheduleNote}${status.remainingMs ? ` - còn ${formatDuration(status.remainingMs)}` : ""}`
-            : "🎯 Focus đang TẮT.";
+          return (
+            (status.active
+              ? `🎯 Focus đang BẬT${scheduleNote}${status.remainingMs ? ` - còn ${formatDuration(status.remainingMs)}` : ""}`
+              : "🎯 Focus đang TẮT.") + breakInfo
+          );
         }
 
         case "break": {
           const durationArg = rest[0] ?? "15m";
           const ms = parseDurationToMs(durationArg);
           await focusService.breakFocus(ms);
-          return `⏸️ Đã tạm ngưng Focus trong ${formatDuration(ms)}. Sẽ tự bật lại nếu vẫn còn trong khung giờ schedule.`;
+          const remaining = focusService.breakUsageRemainingToday();
+          return (
+            `⏸️ Đã tạm ngưng Focus trong ${formatDuration(ms)}. Sẽ tự bật lại nếu vẫn còn trong khung giờ schedule.\n` +
+            `Còn lại hôm nay: ${remaining.breaksRemaining} lần / ${formatDuration(remaining.totalMsRemaining)}.`
+          );
         }
 
         case "remaining": {

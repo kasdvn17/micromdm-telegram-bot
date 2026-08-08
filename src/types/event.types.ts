@@ -24,7 +24,12 @@ export type AppEvent =
   | { type: "profile.removed"; identifier: string }
   | { type: "focus.enabled"; durationMs?: number }
   | { type: "focus.disabled" }
-  | { type: "focus.break.started"; durationMs: number }
+  | {
+      type: "focus.break.started";
+      durationMs: number;
+      breaksRemainingToday: number;
+      breakMsRemainingToday: number;
+    }
   | { type: "focus.schedule.skipped"; scheduleId: string }
   | { type: "safe.enabled" }
   | { type: "safe.disabled" }

@@ -48,7 +48,10 @@ function formatEvent(event: AppEvent): string {
     case "focus.disabled":
       return `🎯 Focus mode: TẮT`;
     case "focus.break.started":
-      return `⏸️ Focus tạm ngưng (break) trong ${Math.round(event.durationMs / 60000)} phút, sẽ tự bật lại nếu vẫn còn trong khung giờ schedule.`;
+      return (
+        `⏸️ Focus tạm ngưng (break) trong ${Math.round(event.durationMs / 60000)} phút, sẽ tự bật lại nếu vẫn còn trong khung giờ schedule.\n` +
+        `Còn lại hôm nay: ${event.breaksRemainingToday} lần / ${Math.round(event.breakMsRemainingToday / 60000)} phút.`
+      );
     case "focus.schedule.skipped":
       return `⏭️ Đã skip schedule [${event.scheduleId.slice(0, 8)}] cho hôm nay.`;
     case "safe.enabled":

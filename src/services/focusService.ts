@@ -8,6 +8,7 @@ import {
 } from "../profiles/profileBuilder";
 import { loadFocusBundleIds, addFocusBundleId, removeFocusBundleId } from "../profiles/restrictedApps";
 import { ValidationError } from "../utils/errors";
+import { formatDuration } from "../utils/time";
 import { FocusSchedule } from "../types/scheduler.types";
 
 export interface FocusStatus {
@@ -27,6 +28,8 @@ export interface FocusServiceApi {
   cancel(): Promise<void>;
   /** /focus break <time> - tạm ngưng Focus trong lúc đang ở khung giờ recurring active */
   breakFocus(ms: number): Promise<void>;
+  /** Số lần / tổng thời gian break CÒN LẠI trong hôm nay (sau giới hạn 4 lần / 1 giờ) */
+  breakUsageRemainingToday(): { breaksRemaining: number; totalMsRemaining: number };
   /** /focus schedule skip [scheduleId] - bỏ qua occurrence của schedule HÔM NAY */
   skipToday(scheduleId?: string): Promise<FocusSchedule>;
   listSchedules(): FocusSchedule[];
@@ -191,12 +194,54 @@ export function createFocusService(
           "Không có schedule nào đang active để break. /focus break chỉ dùng được khi đang trong khung giờ 1 schedule."
         );
       }
+
+      const usage = scheduler.getBreakUsageToday();
+      if (usage.count >= FocusScheduler.MAX_BREAKS_PER_DAY) {
+        throw new ValidationError(
+          `Đã dùng hết ${FocusScheduler.MAX_BREAKS_PER_DAY} lần /focus break trong hôm nay. Thử lại vào ngày mai.`
+        );
+      }
+      const remainingMs = FocusScheduler.MAX_BREAK_TOTAL_MS_PER_DAY - usage.totalMs;
+      if (remainingMs <= 0) {
+        throw new ValidationError(
+          `Đã dùng hết tổng ${formatDuration(FocusScheduler.MAX_BREAK_TOTAL_MS_PER_DAY)} break trong hôm nay. Thử lại vào ngày mai.`
+        );
+      }
+      if (ms > remainingMs) {
+        throw new ValidationError(
+          `Chỉ còn ${formatDuration(remainingMs)} thời gian break trong hôm nay (đã yêu cầu ${formatDuration(ms)}). ` +
+            `Dùng /focus break ${Math.max(1, Math.floor(remainingMs / 60000))}m hoặc ít hơn.`
+        );
+      }
+
       scheduler.startBreak(ms);
       await removeFocusProfile();
-      bus.publish({ type: "focus.break.started", durationMs: ms });
+      const usageAfter = scheduler.getBreakUsageToday();
+      bus.publish({
+        type: "focus.break.started",
+        durationMs: ms,
+        breaksRemainingToday: FocusScheduler.MAX_BREAKS_PER_DAY - usageAfter.count,
+        breakMsRemainingToday: FocusScheduler.MAX_BREAK_TOTAL_MS_PER_DAY - usageAfter.totalMs,
+      });
+    },
+
+    breakUsageRemainingToday(): { breaksRemaining: number; totalMsRemaining: number } {
+      const usage = scheduler.getBreakUsageToday();
+      return {
+        breaksRemaining: Math.max(0, FocusScheduler.MAX_BREAKS_PER_DAY - usage.count),
+        totalMsRemaining: Math.max(0, FocusScheduler.MAX_BREAK_TOTAL_MS_PER_DAY - usage.totalMs),
+      };
     },
 
     async skipToday(scheduleId?: string): Promise<FocusSchedule> {
+      const now = new Date();
+      const dow = now.getDay(); // 0 = Chủ nhật, 6 = Thứ bảy
+      if (dow !== 0 && dow !== 6) {
+        throw new ValidationError(
+          "/focus schedule skip chỉ dùng được vào Thứ 7/Chủ Nhật - không dùng được các ngày trong tuần (Thứ 2 - Thứ 6)."
+        );
+      }
+
       const wasActive = scheduler.isWithinScheduleWindowToday();
       const skipped = scheduler.skipToday(scheduleId);
       if (!skipped) {
