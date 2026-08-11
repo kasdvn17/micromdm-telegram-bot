@@ -49,6 +49,7 @@ import {
 import { createInstallProfileCommand, createListProfilesCommand, createRemoveProfileCommand } from "./commands/emergency/profile.command";
 import { createHelpCommand } from "./commands/normal/help.command";
 import { createAlarmService } from "./services/alarmService";
+import { createDiscordCallService } from "./services/discordCallService";
 import {
   createAlarmStopCommand,
   createAlarmStatusCommand,
@@ -205,11 +206,16 @@ async function main(): Promise<void> {
   );
   const appManagementService = createAppManagementService(deviceCommands, bus);
 
+  const discordCallService = createDiscordCallService(
+    config.secrets.discordSelfToken,
+    config.secrets.discordTargetUserId
+  );
+  await discordCallService.start();
+
   const alarmService = createAlarmService(
     config.constants.alarmStateFilePath,
-    config.secrets.callMeBotTarget,
-    config.constants.alarmTimeZone,
-    config.secrets.callMeBotApiToken
+    discordCallService,
+    config.constants.alarmTimeZone
   );
 
   // 6. Event subscribers

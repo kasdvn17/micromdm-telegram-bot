@@ -12,7 +12,7 @@ Telegram bot cá nhân để quản lý một thiết bị iOS Supervised thông
 - Blacklist app.
 - Theo dõi webhook MicroMDM và lưu lịch sử/log.
 - Tự động xử lý enrollment mới và profile mặc định.
-- Báo thức bằng CallMeBot Telegram Voice Call.
+- Báo thức bằng Discord Voice Call thông qua tài khoản Discord selfbot.
 
 ## Quyền truy cập
 
@@ -26,19 +26,20 @@ Bot có 3 mức xác thực:
 
 Emergency không yêu cầu đúng username; vì vậy `EMERGENCY_PASSWORD` phải được giữ bí mật.
 
-## Báo thức CallMeBot
+## Báo thức Discord
 
-Báo thức sử dụng múi giờ `ALARM_TIMEZONE` (mặc định `Asia/Ho_Chi_Minh`) và gọi tới `CALLMEBOT_TARGET`.
+Báo thức sử dụng múi giờ `ALARM_TIMEZONE` (mặc định `Asia/Ho_Chi_Minh`) và thực hiện cuộc gọi Discord tới `DISCORD_TARGET_USER_ID`.
 
 - **05:00 — lần 1:** gọi lặp lại khoảng mỗi 35 giây cho tới khi dùng `/alarm_stop`.
 - **05:10 — lần 2:** nếu chưa dừng, chuyển sang lần 2 và tiếp tục gọi cho tới `/alarm_stop`.
 - **05:30 — lần 3:** nếu vẫn chưa dừng, thực hiện cuộc gọi cuối cùng rồi kết thúc báo thức.
-- `/alarm_stop`: dừng toàn bộ các lần còn lại trong ngày.
+- `/alarm_stop`: dừng toàn bộ các lần còn lại trong ngày và ngắt cuộc gọi đang hoạt động.
 - `/alarm_status`: xem trạng thái hiện tại.
+- `/call test`: thực hiện ngay một cuộc gọi Discord để kiểm tra cấu hình.
 
-CallMeBot cần tài khoản Telegram đích được authorize trước. Telegram/iOS không cung cấp cho bot cách ép cuộc gọi thành Critical Alert hoặc vượt qua Do Not Disturb; mức độ ưu tiên của cuộc gọi vẫn phụ thuộc thiết bị và cài đặt Telegram.
+Mỗi cuộc gọi **không có thời gian tự ngắt**. Bot giữ cuộc gọi cho tới khi Discord hoặc iPhone kết thúc cuộc gọi, hoặc bạn dùng `/alarm_stop`. Discord không cung cấp cho selfbot một cờ API để biến cuộc gọi thành Critical Alert hoặc buộc vượt qua Do Not Disturb; việc cuộc gọi có đổ chuông phụ thuộc vào Discord và cài đặt thông báo của thiết bị.
 
-`CALLMEBOT_API_TOKEN` được giữ trong `.env` để cấu hình riêng. Endpoint Voice Call hiện xác thực người nhận qua cơ chế authorize của CallMeBot, nên token không được đưa vào URL gọi.
+> **Lưu ý:** `discord.js-selfbot-v13` là thư viện không chính thức cho user account và dự án gốc đã bị archive/deprecated. Việc sử dụng selfbot có thể vi phạm Discord Terms of Service và có rủi ro khóa tài khoản.
 
 ## Danh sách lệnh
 
@@ -195,8 +196,8 @@ WEBHOOK_PATH=/webhook/micromdm
 
 DEVICE_UUID=udid_thiet_bi_ios
 
-CALLMEBOT_TARGET=@kasdvn17
-CALLMEBOT_API_TOKEN=
+DISCORD_SELF_TOKEN=token_tai_khoan_Discord
+DISCORD_TARGET_USER_ID=123456789012345678
 ALARM_TIMEZONE=Asia/Ho_Chi_Minh
 ```
 

@@ -39,7 +39,7 @@ Quy ước: lệnh Emergency/Two-Factor đặt password ngay sau tên lệnh:
 
 /alarm_stop — dừng toàn bộ báo thức hôm nay
 /alarm_status — xem trạng thái báo thức
-/call test — gửi một cuộc gọi test qua CallMeBot
+/call test — gửi một cuộc gọi test qua Discord
 
 ── EMERGENCY ──
 

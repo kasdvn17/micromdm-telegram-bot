@@ -31,15 +31,11 @@ export interface Secrets {
   /** API key (Basic Auth password, username mặc định là "micromdm") của MicroMDM */
   microMdmApiKey: string;
 
-  /** Telegram username được CallMeBot gọi bằng Telegram Voice Call */
-  callMeBotTarget: string;
+  /** Discord user token used by the selfbot account. */
+  discordSelfToken: string;
 
-  /**
-   * Token/API key do người dùng lưu trong .env.
-   * Telegram Voice Call endpoint hiện không dùng trường này; CallMeBot
-   * xác thực người nhận qua bước authorize tài khoản Telegram.
-   */
-  callMeBotApiToken: string;
+  /** Discord user ID that should receive the voice call. */
+  discordTargetUserId: string;
 }
 
 /**
@@ -52,7 +48,8 @@ const REQUIRED_ENV_KEYS = [
   "EMERGENCY_PASSWORD",
   "MICROMDM_URL",
   "MICROMDM_API_KEY",
-  "CALLMEBOT_TARGET",
+  "DISCORD_SELF_TOKEN",
+  "DISCORD_TARGET_USER_ID",
 ] as const;
 
 type RequiredEnvKey = (typeof REQUIRED_ENV_KEYS)[number];
@@ -88,7 +85,7 @@ export function loadSecrets(env: NodeJS.ProcessEnv = process.env): Secrets {
     emergencyPassword: env.EMERGENCY_PASSWORD!,
     microMdmUrl: env.MICROMDM_URL!.trim().replace(/\/+$/, ""),
     microMdmApiKey: env.MICROMDM_API_KEY!.trim(),
-    callMeBotTarget: env.CALLMEBOT_TARGET!.trim(),
-    callMeBotApiToken: env.CALLMEBOT_API_TOKEN?.trim() ?? "",
+    discordSelfToken: env.DISCORD_SELF_TOKEN!.trim(),
+    discordTargetUserId: env.DISCORD_TARGET_USER_ID!.trim(),
   };
 }

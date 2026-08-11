@@ -77,6 +77,7 @@ export interface AppConstants {
 
   /** Múi giờ dùng cho báo thức */
   alarmTimeZone: string;
+
 }
 
 const DEFAULT_DEVICE_INFO_POLL_INTERVAL_MS = 60 * 60 * 1000; // 1 tiếng

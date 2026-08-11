@@ -16,7 +16,8 @@
     "node-telegram-bot-api": "^0.66.0",
     "plist": "^5.0.0",
     "winston": "^3.13.0",
-    "winston-daily-rotate-file": "^5.0.0"
+    "winston-daily-rotate-file": "^5.0.0",
+    "discord.js-selfbot-v13": "3.7.1"
   },
   "devDependencies": {
     "typescript": "^5.5.4",

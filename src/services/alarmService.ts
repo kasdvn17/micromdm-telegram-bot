@@ -1,5 +1,6 @@
 import { readJsonState, writeJsonState } from "../utils/jsonStore";
 import { getLogger } from "../utils/logger";
+import { DiscordCallServiceApi } from "./discordCallService";
 
 interface AlarmState {
   date: string;
@@ -20,7 +21,6 @@ const STAGES: AlarmStage[] = [
 ];
 
 const CALL_INTERVAL_MS = 35_000;
-const CALL_TIMEOUT_MS = 12_000;
 
 export interface AlarmServiceApi {
   start(): void;
@@ -50,16 +50,9 @@ function partsInTimeZone(date: Date, timeZone: string): Record<string, string> {
 
 export function createAlarmService(
   filePath: string,
-  targetUsername: string,
-  timeZone: string,
-  apiToken?: string
+  discordCallService: DiscordCallServiceApi,
+  timeZone: string
 ): AlarmServiceApi {
-  // The Telegram voice-call endpoint currently authenticates the recipient
-  // through CallMeBot's user authorization flow rather than an API key.
-  // Keep apiToken in config/.env for deployments that want to store it, but
-  // do not put it into the Telegram-call URL unless CallMeBot documents it.
-  void apiToken;
-
   let tickHandle: NodeJS.Timeout | null = null;
   let callHandle: NodeJS.Timeout | null = null;
   let activeStage = 0;
@@ -97,33 +90,10 @@ export function createAlarmService(
     writeJsonState(filePath, state);
   }
 
-  async function requestCall(text: string, stage?: number): Promise<{ ok: boolean; status: number; body: string }> {
-    const url = new URL("https://api.callmebot.com/start.php");
-    url.searchParams.set("user", targetUsername);
-    url.searchParams.set("text", text);
-    url.searchParams.set("lang", "vi-VN-Standard-A");
-    url.searchParams.set("rpt", "3");
-    url.searchParams.set("cc", "yes");
-
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), CALL_TIMEOUT_MS);
-
-    try {
-      const response = await fetch(url, {
-        method: "GET",
-        signal: controller.signal,
-      });
-      const body = await response.text();
-      const result = { ok: response.ok, status: response.status, body: body.slice(0, 500) };
-
-      if (response.ok) {
-        getLogger().info("[alarm] CallMeBot call requested", { stage, targetUsername, response: result.body });
-      } else {
-        getLogger().error("[alarm] CallMeBot returned HTTP error", { stage, targetUsername, status: response.status, response: result.body });
-      }
-      return result;
-    } finally {
-      clearTimeout(timeout);
+  function clearCallLoop(): void {
+    if (callHandle) {
+      clearTimeout(callHandle);
+      callHandle = null;
     }
   }
 
@@ -131,29 +101,21 @@ export function createAlarmService(
     if (callInFlight) return;
     callInFlight = true;
 
-    const text =
-      stage === 1
-        ? "Bao Lam, day la bao thuc. Hay thuc day ngay bay gio."
-        : stage === 2
-          ? "Bao Lam, day la lan bao thuc thu hai. Hay thuc day ngay bay gio."
-          : "Bao Lam, day la lan bao thuc cuoi cung. Hay thuc day ngay bay gio.";
-
     try {
-      await requestCall(text, stage);
+      const result = await discordCallService.call();
+      if (!result.ok) {
+        getLogger().error("[alarm] Discord call failed", {
+          stage,
+          detail: result.detail,
+        });
+      }
     } catch (err) {
-      getLogger().error("[alarm] CallMeBot call failed", {
+      getLogger().error("[alarm] Discord call failed", {
         stage,
-        error: (err as Error).message,
+        error: err instanceof Error ? err.message : String(err),
       });
     } finally {
       callInFlight = false;
-    }
-  }
-
-  function clearCallLoop(): void {
-    if (callHandle) {
-      clearTimeout(callHandle);
-      callHandle = null;
     }
   }
 
@@ -167,7 +129,6 @@ export function createAlarmService(
   async function runCall(stage: number): Promise<void> {
     const state = readState();
 
-    // /alarm_stop stops the whole alarm sequence for today.
     if (state.stopped || stage !== activeStage) return;
 
     await callOnce(stage);
@@ -179,7 +140,6 @@ export function createAlarmService(
     if (stageInfo?.repeatUntilStopped) {
       scheduleNextCall(stage);
     } else {
-      // Stage 3 is explicitly the final call.
       after.firedStage = Math.max(after.firedStage, stage);
       saveState(after);
       activeStage = 0;
@@ -199,7 +159,6 @@ export function createAlarmService(
     getLogger().info("[alarm] Alarm stage started", {
       stage: stage.stage,
       time: stage.time,
-      targetUsername,
     });
   }
 
@@ -207,15 +166,12 @@ export function createAlarmService(
     const state = readState();
     const current = hhmm();
 
-    // If today's alarm was stopped, nothing else is scheduled.
     if (state.stopped) {
       activeStage = 0;
       clearCallLoop();
       return;
     }
 
-    // Escalate at exact minute boundaries. If the process starts late,
-    // start the latest stage that should currently be active.
     let dueStage: AlarmStage | undefined;
     for (const stage of STAGES) {
       if (current >= stage.time && state.firedStage < stage.stage) {
@@ -223,12 +179,9 @@ export function createAlarmService(
       }
     }
 
-    if (dueStage) {
-      // Stage 3 is a one-shot final call; stages 1 and 2 repeat.
-      if (activeStage !== dueStage.stage) {
-        clearCallLoop();
-        startStage(dueStage, state);
-      }
+    if (dueStage && activeStage !== dueStage.stage) {
+      clearCallLoop();
+      startStage(dueStage, state);
     }
   }
 
@@ -237,9 +190,13 @@ export function createAlarmService(
       if (tickHandle) return;
       tickHandle = setInterval(tick, 1_000);
       tick();
+      void discordCallService.start().catch((error) => {
+        getLogger().error("[alarm] Discord selfbot login failed", {
+          error: error instanceof Error ? error.message : String(error),
+        });
+      });
       getLogger().info("[alarm] Alarm scheduler started", {
         timeZone,
-        targetUsername,
         stages: STAGES.map((s) => `${s.stage}@${s.time}`).join(", "),
       });
     },
@@ -250,10 +207,10 @@ export function createAlarmService(
       saveState(state);
       activeStage = 0;
       clearCallLoop();
+      discordCallService.stopActiveCall();
 
       getLogger().info("[alarm] Alarm stopped for today", {
         date: state.date,
-        targetUsername,
       });
 
       return `⏰ Đã tắt toàn bộ báo thức hôm nay (${state.date}). Sẽ không gọi tiếp các lần sau.`;
@@ -278,18 +235,11 @@ export function createAlarmService(
 
       callInFlight = true;
       try {
-        const result = await requestCall(
-          "Day la cuoc goi test CallMeBot. Neu ban nghe thay tin nhan nay thi cuoc goi hoat dong.",
-          0
-        );
-        const body = result.body.replace(/\s+/g, " ").trim();
-        if (!result.ok) {
-          return `ERROR: HTTP ${result.status}${body ? ` — ${body}` : ""}`;
-        }
-        return `OK: CallMeBot đã nhận yêu cầu gọi tới ${targetUsername}${body ? ` — ${body}` : ""}`;
+        const result = await discordCallService.call();
+        return result.ok ? `OK: ${result.detail}` : `ERROR: ${result.detail}`;
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
-        getLogger().error("[alarm] Test CallMeBot call failed", { targetUsername, error: message });
+        getLogger().error("[alarm] Test Discord call failed", { error: message });
         return `ERROR: ${message}`;
       } finally {
         callInFlight = false;
