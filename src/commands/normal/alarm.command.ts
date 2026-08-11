@@ -16,3 +16,18 @@ export function createAlarmStatusCommand(alarmService: AlarmServiceApi): Command
     handler: async (): Promise<string> => alarmService.status(),
   };
 }
+
+
+export function createCallCommand(alarmService: AlarmServiceApi): CommandDefinition {
+  return {
+    name: "call",
+    tier: AuthTier.Normal,
+    handler: async (ctx): Promise<string> => {
+      const [subcommand] = ctx.effectiveArgs;
+      if (subcommand?.toLowerCase() !== "test") {
+        return "ERROR: Cú pháp: /call test";
+      }
+      return alarmService.testCall();
+    },
+  };
+}

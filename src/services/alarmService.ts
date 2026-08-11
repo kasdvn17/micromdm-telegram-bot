@@ -26,6 +26,7 @@ export interface AlarmServiceApi {
   start(): void;
   stop(): string;
   status(): string;
+  testCall(): Promise<string>;
 }
 
 function partsInTimeZone(date: Date, timeZone: string): Record<string, string> {
@@ -96,6 +97,36 @@ export function createAlarmService(
     writeJsonState(filePath, state);
   }
 
+  async function requestCall(text: string, stage?: number): Promise<{ ok: boolean; status: number; body: string }> {
+    const url = new URL("https://api.callmebot.com/start.php");
+    url.searchParams.set("user", targetUsername);
+    url.searchParams.set("text", text);
+    url.searchParams.set("lang", "vi-VN-Standard-A");
+    url.searchParams.set("rpt", "3");
+    url.searchParams.set("cc", "yes");
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), CALL_TIMEOUT_MS);
+
+    try {
+      const response = await fetch(url, {
+        method: "GET",
+        signal: controller.signal,
+      });
+      const body = await response.text();
+      const result = { ok: response.ok, status: response.status, body: body.slice(0, 500) };
+
+      if (response.ok) {
+        getLogger().info("[alarm] CallMeBot call requested", { stage, targetUsername, response: result.body });
+      } else {
+        getLogger().error("[alarm] CallMeBot returned HTTP error", { stage, targetUsername, status: response.status, response: result.body });
+      }
+      return result;
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
   async function callOnce(stage: number): Promise<void> {
     if (callInFlight) return;
     callInFlight = true;
@@ -108,35 +139,7 @@ export function createAlarmService(
           : "Bao Lam, day la lan bao thuc cuoi cung. Hay thuc day ngay bay gio.";
 
     try {
-      const url = new URL("https://api.callmebot.com/start.php");
-      url.searchParams.set("user", targetUsername);
-      url.searchParams.set("text", text);
-      url.searchParams.set("lang", "vi-VN-Standard-A");
-      url.searchParams.set("rpt", "3");
-      url.searchParams.set("cc", "yes");
-
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), CALL_TIMEOUT_MS);
-
-      try {
-        const response = await fetch(url, {
-          method: "GET",
-          signal: controller.signal,
-        });
-        const body = await response.text();
-
-        if (!response.ok) {
-          throw new Error(`CallMeBot HTTP ${response.status}: ${body.slice(0, 300)}`);
-        }
-
-        getLogger().info("[alarm] CallMeBot call requested", {
-          stage,
-          targetUsername,
-          response: body.slice(0, 300),
-        });
-      } finally {
-        clearTimeout(timeout);
-      }
+      await requestCall(text, stage);
     } catch (err) {
       getLogger().error("[alarm] CallMeBot call failed", {
         stage,
@@ -266,6 +269,31 @@ export function createAlarmService(
         return `⏰ Báo thức đang chờ: 05:00 → 05:10 → 05:30 (${timeZone}).`;
       }
       return `⏰ Báo thức đang ở lần ${stage}.`;
+    },
+
+    async testCall(): Promise<string> {
+      if (callInFlight) {
+        return `ERROR: Đang có một cuộc gọi khác đang được gửi.`;
+      }
+
+      callInFlight = true;
+      try {
+        const result = await requestCall(
+          "Day la cuoc goi test CallMeBot. Neu ban nghe thay tin nhan nay thi cuoc goi hoat dong.",
+          0
+        );
+        const body = result.body.replace(/\s+/g, " ").trim();
+        if (!result.ok) {
+          return `ERROR: HTTP ${result.status}${body ? ` — ${body}` : ""}`;
+        }
+        return `OK: CallMeBot đã nhận yêu cầu gọi tới ${targetUsername}${body ? ` — ${body}` : ""}`;
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        getLogger().error("[alarm] Test CallMeBot call failed", { targetUsername, error: message });
+        return `ERROR: ${message}`;
+      } finally {
+        callInFlight = false;
+      }
     },
   };
 }

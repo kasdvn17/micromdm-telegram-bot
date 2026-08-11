@@ -52,6 +52,7 @@ import { createAlarmService } from "./services/alarmService";
 import {
   createAlarmStopCommand,
   createAlarmStatusCommand,
+  createCallCommand,
 } from "./commands/normal/alarm.command";
 
 async function main(): Promise<void> {
@@ -256,6 +257,7 @@ async function main(): Promise<void> {
     createHelpCommand(),
     createAlarmStopCommand(alarmService),
     createAlarmStatusCommand(alarmService),
+    createCallCommand(alarmService),
   ];
 
   const router = createRouter(
