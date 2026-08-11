@@ -213,7 +213,7 @@ export function createAlarmService(
         date: state.date,
       });
 
-      return `⏰ Đã tắt toàn bộ báo thức hôm nay (${state.date}). Sẽ không gọi tiếp các lần sau.`;
+      return `⏰ Đã tắt toàn bộ báo thức hôm nay (${state.date}). Sẽ không gửi thêm yêu cầu gọi.`;
     },
 
     status(): string {

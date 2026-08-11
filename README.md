@@ -33,11 +33,11 @@ Báo thức sử dụng múi giờ `ALARM_TIMEZONE` (mặc định `Asia/Ho_Chi_
 - **05:00 — lần 1:** gọi lặp lại khoảng mỗi 35 giây cho tới khi dùng `/alarm_stop`.
 - **05:10 — lần 2:** nếu chưa dừng, chuyển sang lần 2 và tiếp tục gọi cho tới `/alarm_stop`.
 - **05:30 — lần 3:** nếu vẫn chưa dừng, thực hiện cuộc gọi cuối cùng rồi kết thúc báo thức.
-- `/alarm_stop`: dừng toàn bộ các lần còn lại trong ngày và ngắt cuộc gọi đang hoạt động.
+- `/alarm_stop`: dừng toàn bộ các lần còn lại trong ngày và không gửi thêm yêu cầu gọi.
 - `/alarm_status`: xem trạng thái hiện tại.
 - `/call test`: thực hiện ngay một cuộc gọi Discord để kiểm tra cấu hình.
 
-Mỗi cuộc gọi **không có thời gian tự ngắt**. Bot giữ cuộc gọi cho tới khi Discord hoặc iPhone kết thúc cuộc gọi, hoặc bạn dùng `/alarm_stop`. Discord không cung cấp cho selfbot một cờ API để biến cuộc gọi thành Critical Alert hoặc buộc vượt qua Do Not Disturb; việc cuộc gọi có đổ chuông phụ thuộc vào Discord và cài đặt thông báo của thiết bị.
+Mỗi lần gọi dùng `DMChannel.sync()` rồi `DMChannel.ring()` của `discord.js-selfbot-v13@3.7.1`. Ở bản 3.7.1, `DMChannel.call()` không tồn tại ở runtime; `sync()` được dùng để đồng bộ trạng thái DM voice trước khi gửi ring. Với lần 1 và lần 2, scheduler gửi lại yêu cầu ring định kỳ cho tới `/alarm_stop`; lần 3 chỉ gửi một lần. Không có timer tự ngắt ở phía bot.
 
 > **Lưu ý:** `discord.js-selfbot-v13` là thư viện không chính thức cho user account và dự án gốc đã bị archive/deprecated. Việc sử dụng selfbot có thể vi phạm Discord Terms of Service và có rủi ro khóa tài khoản.
 

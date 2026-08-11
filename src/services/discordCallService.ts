@@ -13,10 +13,15 @@ export interface DiscordCallServiceApi {
 }
 
 /**
- * Discord voice-call client backed by a user account (selfbot).
+ * Discord DM call/ring client backed by a user account (selfbot).
  *
- * discord.js-selfbot-v13 exposes DMChannel.call(), which creates a Discord
- * DM voice call. The library requires patchVoice:true for voice support.
+ * In discord.js-selfbot-v13 3.7.1, DMChannel does NOT expose call().
+ * The supported DM call primitive in this version is DMChannel.ring(),
+ * which sends Discord's DM call ring request to the recipient.
+ *
+ * We intentionally do not invent a local call duration: Discord/iOS controls
+ * the lifetime of the actual call UI/session. The alarm scheduler can send
+ * another ring request while a stage is active.
  */
 export function createDiscordCallService(
   token: string,
@@ -29,7 +34,6 @@ export function createDiscordCallService(
 
   let ready = false;
   let loginPromise: Promise<void> | null = null;
-  let activeConnection: { disconnect: () => void } | null = null;
 
   client.on("ready", () => {
     ready = true;
@@ -52,53 +56,36 @@ export function createDiscordCallService(
   }
 
   function stopActiveCall(): void {
-    if (activeConnection) {
-      try {
-        activeConnection.disconnect();
-      } catch (error) {
-        getLogger().warn("[discord] Failed to disconnect active call", {
-          error: error instanceof Error ? error.message : String(error),
-        });
-      }
-      activeConnection = null;
-    }
+    // v3.7.1 does not expose a DM voice connection from DMChannel.call().
+    // /alarm_stop therefore stops all future ring requests. If the recipient
+    // has already answered a call, Discord/iOS owns that active session.
   }
 
   async function call(): Promise<DiscordCallResult> {
     try {
       await start();
 
-      if (activeConnection) {
-        return {
-          ok: false,
-          detail: "Đang có một cuộc gọi Discord khác.",
-        };
-      }
-
       const user = await client.users.fetch(targetUserId);
       const dmChannel = user.dmChannel ?? await user.createDM();
 
-      const connection = await dmChannel.call({
-        ring: true,
-        selfDeaf: false,
-        selfMute: true,
-      });
+      // In v3.7.1, DMChannel.call() is not exposed at runtime.
+      // sync() sends the DM voice-state update used by the library, then
+      // ring() sends the actual call-ring request.
+      dmChannel.sync();
+      await dmChannel.ring();
 
-      activeConnection = connection;
-      getLogger().info("[discord] Voice call started", {
+      getLogger().info("[discord] DM call ring sent", {
         targetUserId,
         targetUsername: user.username,
       });
 
-
-
       return {
         ok: true,
-        detail: `Discord call đã được khởi tạo tới ${user.username} (${user.id}).`,
+        detail: `OK: Đã gửi yêu cầu gọi Discord tới ${user.username} (${user.id}).`,
       };
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error);
-      getLogger().error("[discord] Voice call failed", {
+      getLogger().error("[discord] DM call ring failed", {
         targetUserId,
         error: detail,
       });
