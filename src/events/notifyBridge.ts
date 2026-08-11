@@ -47,6 +47,10 @@ function formatEvent(event: AppEvent): string {
       return `🎯 Focus mode: BẬT${event.durationMs ? ` (${Math.round(event.durationMs / 60000)} phút)` : ""}`;
     case "focus.disabled":
       return `🎯 Focus mode: TẮT`;
+    case "focus.sleep.enabled":
+      return `😴 Sleep Mode: BẮT ĐẦU (22:00 - 05:00 sáng mai) - Focus tự động bật, KHÔNG thể tắt/break/skip cho tới hết giờ.`;
+    case "focus.sleep.disabled":
+      return `😴 Sleep Mode: KẾT THÚC (05:00) - Focus trở về trạng thái bình thường.`;
     case "focus.break.started":
       return (
         `⏸️ Focus tạm ngưng (break) trong ${Math.round(event.durationMs / 60000)} phút, sẽ tự bật lại nếu vẫn còn trong khung giờ schedule.\n` +

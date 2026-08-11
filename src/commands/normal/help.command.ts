@@ -27,10 +27,13 @@ Quy ước: lệnh Emergency/Two-Factor đặt password ngay sau tên lệnh -
 /focus schedule skip [id] — bỏ qua schedule HÔM NAY (chỉ dùng được Thứ 7/Chủ Nhật, không truyền id thì tự tìm)
 /focus blockadd|blockremove <bundleId> — thêm/gỡ app khỏi danh sách chặn của Focus
 /focus blocklist — xem danh sách app bị chặn bởi Focus
+/focus blwadd|blwremove <website> — thêm/gỡ website khỏi danh sách chặn của Focus (dùng chung profile Focus)
+/focus blwlist — xem danh sách website bị chặn bởi Focus
 
 /notify on|off|test — bật/tắt/test notification
-/blacklist add|remove <bundleId> — thêm/gỡ app khỏi blacklist (độc lập với Focus)
+/blacklist add <bundleId> — thêm app vào blacklist (⚠️ remove ĐANG TẠM VÔ HIỆU HOÁ)
 /blacklist list — xem blacklist
+/blacklist blwadd <website> — thêm website vào blacklist (dùng chung profile Blacklist)
 
 /search <bundleId1> [bundleId2]... — tìm thông tin ứng dụng trên iTunes Store VN
 
@@ -41,6 +44,12 @@ Quy ước: lệnh Emergency/Two-Factor đặt password ngay sau tên lệnh -
 /history — 20 event gần nhất
 /auth test <password> — kiểm tra Emergency Password có đúng không
 /help — xem lại danh sách này
+
+/alarm_stop — tắt toàn bộ báo thức hôm nay, không gọi tiếp các lần sau
+/alarm_status — xem trạng thái báo thức
+
+😴 SLEEP MODE (cố định, KHÔNG có lệnh bật/tắt)
+Từ 22:00 tới 05:00 sáng hôm sau, Focus TỰ ĐỘNG bật (dùng chung profile với Focus Mode, cùng app/website bị chặn). KHÔNG THỂ TẮT bằng bất kỳ lệnh nào - /focus off, /focus cancel, /focus break, /focus schedule skip đều KHÔNG có tác dụng trong khung giờ này.
 
 ── EMERGENCY (chỉ cần đúng password, mọi tài khoản Telegram) ──
 
@@ -70,7 +79,7 @@ Quy ước: lệnh Emergency/Two-Factor đặt password ngay sau tên lệnh -
 
 /profiles <password> — liệt kê Configuration Profile trên máy
 /installprofile <password> <filename> — cài file .plist trong thư mục data/, vd default.plist
-/removeprofile <password> <profileIdentifier> — gỡ 1 profile theo PayloadIdentifier
+/removeprofile <password> <profileIdentifier> — gỡ 1 profile theo PayloadIdentifier (⛔ không xoá được profile Focus/Blacklist/Safe do bot quản lý)
 
 ── TWO-FACTOR (bắt buộc đúng username chính chủ VÀ password) ──
 

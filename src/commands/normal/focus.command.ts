@@ -25,6 +25,9 @@ export function createFocusCommand(focusService: FocusServiceApi): CommandDefini
           const status = focusService.status();
           const remaining = focusService.breakUsageRemainingToday();
           const breakInfo = `\nBreak còn lại hôm nay: ${remaining.breaksRemaining} lần / ${formatDuration(remaining.totalMsRemaining)}.`;
+          if (status.withinSleep) {
+            return `😴 Đang trong Sleep Mode (22:00 - 05:00) - Focus BẬT, KHÔNG thể tắt/break/skip.${breakInfo}`;
+          }
           if (status.onBreak) {
             return `🎯 Focus đang TẠM NGƯNG (break) - còn ${formatDuration(status.breakRemainingMs ?? 0)}, sẽ tự bật lại nếu vẫn trong khung giờ schedule.${breakInfo}`;
           }
@@ -138,9 +141,34 @@ export function createFocusCommand(focusService: FocusServiceApi): CommandDefini
             : blockList.map((b) => `- ${b}`).join("\n");
         }
 
+        case "blwadd": {
+          const url = rest[0];
+          if (!url) throw new ValidationError("Cú pháp: /focus blwadd <website>");
+          const appliedNow = await focusService.addBlockWebsite(url);
+          return appliedNow
+            ? `🚫 Đã thêm website "${url}" vào danh sách chặn và áp dụng NGAY (Focus đang bật).`
+            : `🚫 Đã thêm website "${url}" vào danh sách chặn. Sẽ áp dụng khi bật Focus lần tới (hiện Focus đang TẮT nên chưa đẩy xuống máy).`;
+        }
+
+        case "blwremove": {
+          const url = rest[0];
+          if (!url) throw new ValidationError("Cú pháp: /focus blwremove <website>");
+          const appliedNow = await focusService.removeBlockWebsite(url);
+          return appliedNow
+            ? `✅ Đã gỡ website "${url}" khỏi danh sách chặn và áp dụng NGAY (Focus đang bật).`
+            : `✅ Đã gỡ website "${url}" khỏi danh sách chặn. Sẽ áp dụng khi bật Focus lần tới (hiện Focus đang TẮT nên chưa đẩy xuống máy).`;
+        }
+
+        case "blwlist": {
+          const websites = await focusService.listBlockWebsites();
+          return websites.length === 0
+            ? "📋 Danh sách chặn website trong Focus mode đang trống."
+            : websites.map((w) => `- ${w}`).join("\n");
+        }
+
         default: {
           // không match subcommand nào -> thử parse như duration, vd "/focus 90m"
-          if (!sub) throw new ValidationError("Cú pháp: /focus on|off|status|remaining|extend <d>|cancel|break [d]|schedule|blockadd|blockremove|blocklist ...");
+          if (!sub) throw new ValidationError("Cú pháp: /focus on|off|status|remaining|extend <d>|cancel|break [d]|schedule|blockadd|blockremove|blocklist|blwadd|blwremove|blwlist ...");
           const ms = parseDurationToMs(sub);
           await focusService.enable(ms);
           return `🎯 Focus mode đã BẬT trong ${formatDuration(ms)}.`;

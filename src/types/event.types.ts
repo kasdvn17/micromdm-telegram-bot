@@ -24,6 +24,8 @@ export type AppEvent =
   | { type: "profile.removed"; identifier: string }
   | { type: "focus.enabled"; durationMs?: number }
   | { type: "focus.disabled" }
+  | { type: "focus.sleep.enabled" }
+  | { type: "focus.sleep.disabled" }
   | {
       type: "focus.break.started";
       durationMs: number;

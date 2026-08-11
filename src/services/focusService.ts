@@ -6,7 +6,7 @@ import {
   buildRestrictedAppsProfile,
   FOCUS_PROFILE_IDENTIFIER,
 } from "../profiles/profileBuilder";
-import { loadFocusBundleIds, addFocusBundleId, removeFocusBundleId } from "../profiles/restrictedApps";
+import { loadFocusBundleIds, addFocusBundleId, removeFocusBundleId, loadFocusWebsites, addFocusWebsite, removeFocusWebsite } from "../profiles/restrictedApps";
 import { ValidationError } from "../utils/errors";
 import { formatDuration } from "../utils/time";
 import { FocusSchedule } from "../types/scheduler.types";
@@ -16,6 +16,8 @@ export interface FocusStatus {
   remainingMs: number | null;
   /** true nếu hiện tại đang trong khung giờ 1 recurring schedule (bất kể break) */
   withinSchedule: boolean;
+  /** true nếu hiện tại đang trong Sleep Mode (22:00 - 05:00, cố định, không thể tắt) */
+  withinSleep: boolean;
   onBreak: boolean;
   breakRemainingMs: number | null;
 }
@@ -41,6 +43,11 @@ export interface FocusServiceApi {
   addBlockApplication(bundleId: string): Promise<boolean>;
   removeBlockApplication(bundleId: string): Promise<boolean>;
   listBlockApplications(): Promise<string[]>;
+  /** /focus blwadd|blwremove|blwlist - chặn website, dùng CHUNG profile Focus
+   *  (thêm payload Web Content Filter vào cùng profile với app restriction) */
+  addBlockWebsite(url: string): Promise<boolean>;
+  removeBlockWebsite(url: string): Promise<boolean>;
+  listBlockWebsites(): Promise<string[]>;
   /**
    * Chỉ dùng nội bộ bởi main.ts (wiring FocusScheduler's onRecurringTrigger/
    * onBreakExpire) - KHÔNG expose qua Telegram command. Bỏ qua guard "đang
@@ -48,12 +55,29 @@ export interface FocusServiceApi {
    */
   scheduleActivate(): Promise<void>;
   scheduleDeactivate(): Promise<void>;
+  /**
+   * Giống scheduleActivate/scheduleDeactivate (cài/gỡ CÙNG profile Focus,
+   * bỏ qua guard) nhưng publish event RIÊNG (focus.sleep.enabled/disabled)
+   * để notify hiển thị message riêng cho Sleep Mode thay vì lẫn với message
+   * "Focus mode: BẬT/TẮT" chung chung. Chỉ dùng bởi main.ts wiring
+   * onSleepTrigger.
+   */
+  sleepActivate(): Promise<void>;
+  sleepDeactivate(): Promise<void>;
+  /**
+   * true nếu Focus profile đang thực sự cần thiết trên máy VÌ MỘT LÝ DO NÀO
+   * KHÁC NGOÀI Sleep Mode (manual/duration/recurring schedule). Dùng bởi
+   * main.ts khi Sleep Mode kết thúc (05:00): chỉ gỡ profile nếu hàm này trả
+   * false, tránh tắt nhầm Focus nếu vẫn đang bật vì lý do khác.
+   */
+  isFocusActiveNow(): boolean;
 }
 
 export function createFocusService(
   deviceCommands: DeviceCommands,
   scheduler: FocusScheduler,
   restrictedAppsFilePath: string,
+  focusWebsitesFilePath: string,
   safeModeService: SafeModeServiceApi,
   bus: EventBus
 ): FocusServiceApi {
@@ -61,10 +85,12 @@ export function createFocusService(
 
   const installFocusProfile = async (): Promise<void> => {
     const bundleIds = loadFocusBundleIds(restrictedAppsFilePath);
+    const websites = loadFocusWebsites(focusWebsitesFilePath);
     const profile = buildRestrictedAppsProfile({
       identifier: FOCUS_PROFILE_IDENTIFIER,
       displayName: "Focus Mode",
       restrictedBundleIds: bundleIds,
+      blockedWebsites: websites,
     });
     await deviceCommands.installProfile(profile);
     bus.publish({ type: "profile.installed", identifier: FOCUS_PROFILE_IDENTIFIER });
@@ -90,13 +116,24 @@ export function createFocusService(
    * nên chỉ lưu vào file mà KHÔNG đẩy xuống máy ngay, dù app trên thực tế
    * đang bị Focus schedule chặn - state trên bot và trên máy bị lệch nhau
    * cho tới tận lần recurring trigger tiếp theo (hôm sau).
+   *
+   * Giờ tính CẢ Sleep Mode (22:00 - 05:00, cố định, không thể tắt) - khi Sleep
+   * Mode đang active, Focus profile LUÔN có trên máy dù không có lý do nào
+   * khác (manual/duration/recurring) yêu cầu.
    */
   const isFocusActiveNow = (): boolean =>
     manuallyActive ||
     scheduler.activeDurationSchedule() !== null ||
-    (scheduler.isWithinScheduleWindowToday() && !scheduler.isOnBreak());
+    (scheduler.isWithinScheduleWindowToday() && !scheduler.isOnBreak()) ||
+    scheduler.isWithinSleepWindow();
 
   const requireNotWithinSchedule = (actionLabel: string): void => {
+    if (scheduler.isWithinSleepWindow()) {
+      throw new ValidationError(
+        `Đang trong Sleep Mode (${FocusScheduler.SLEEP_START} - ${FocusScheduler.SLEEP_END}) nên /focus ${actionLabel} không có tác dụng. ` +
+          `Sleep Mode cố định, không thể tắt/break/skip bằng bất kỳ lệnh nào.`
+      );
+    }
     if (scheduler.isWithinScheduleWindowToday()) {
       throw new ValidationError(
         `Đang trong khung giờ 1 schedule active nên /focus ${actionLabel} không có tác dụng. ` +
@@ -152,6 +189,7 @@ export function createFocusService(
     status(): FocusStatus {
       const active = scheduler.activeDurationSchedule();
       const withinSchedule = scheduler.isWithinScheduleWindowToday();
+      const withinSleep = scheduler.isWithinSleepWindow();
       const onBreak = scheduler.isOnBreak();
       const breakRemainingMs = scheduler.breakRemainingMs();
       if (active) {
@@ -159,14 +197,16 @@ export function createFocusService(
           active: true,
           remainingMs: scheduler.remainingMs(active.id),
           withinSchedule,
+          withinSleep,
           onBreak,
           breakRemainingMs,
         };
       }
       return {
-        active: manuallyActive || (withinSchedule && !onBreak),
+        active: manuallyActive || (withinSchedule && !onBreak) || withinSleep,
         remainingMs: null,
         withinSchedule,
+        withinSleep,
         onBreak,
         breakRemainingMs,
       };
@@ -189,6 +229,11 @@ export function createFocusService(
     },
 
     async breakFocus(ms: number): Promise<void> {
+      if (scheduler.isWithinSleepWindow()) {
+        throw new ValidationError(
+          `Đang trong Sleep Mode (${FocusScheduler.SLEEP_START} - ${FocusScheduler.SLEEP_END}) - không thể break. Sleep Mode cố định, không thể tắt.`
+        );
+      }
       if (!scheduler.isWithinScheduleWindowToday()) {
         throw new ValidationError(
           "Không có schedule nào đang active để break. /focus break chỉ dùng được khi đang trong khung giờ 1 schedule."
@@ -300,6 +345,26 @@ export function createFocusService(
       return loadFocusBundleIds(restrictedAppsFilePath);
     },
 
+    async addBlockWebsite(url: string): Promise<boolean> {
+      addFocusWebsite(focusWebsitesFilePath, url);
+      const appliedNow = isFocusActiveNow();
+      if (appliedNow) {
+        await installFocusProfile();
+      }
+      return appliedNow;
+    },
+    async removeBlockWebsite(url: string): Promise<boolean> {
+      removeFocusWebsite(focusWebsitesFilePath, url);
+      const appliedNow = isFocusActiveNow();
+      if (appliedNow) {
+        await installFocusProfile();
+      }
+      return appliedNow;
+    },
+    async listBlockWebsites(): Promise<string[]> {
+      return loadFocusWebsites(focusWebsitesFilePath);
+    },
+
     // --- Nội bộ, dùng bởi main.ts wiring FocusScheduler ---
     async scheduleActivate(): Promise<void> {
       await installFocusProfile();
@@ -309,6 +374,15 @@ export function createFocusService(
       await removeFocusProfile();
       bus.publish({ type: "focus.disabled" });
     },
+    async sleepActivate(): Promise<void> {
+      await installFocusProfile();
+      bus.publish({ type: "focus.sleep.enabled" });
+    },
+    async sleepDeactivate(): Promise<void> {
+      await removeFocusProfile();
+      bus.publish({ type: "focus.sleep.disabled" });
+    },
+    isFocusActiveNow,
   };
 }
 

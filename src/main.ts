@@ -48,6 +48,11 @@ import {
 } from "./commands/emergency/app.command";
 import { createInstallProfileCommand, createListProfilesCommand, createRemoveProfileCommand } from "./commands/emergency/profile.command";
 import { createHelpCommand } from "./commands/normal/help.command";
+import { createAlarmService } from "./services/alarmService";
+import {
+  createAlarmStopCommand,
+  createAlarmStatusCommand,
+} from "./commands/normal/alarm.command";
 
 async function main(): Promise<void> {
   // Bắt toàn cục unhandledRejection/uncaughtException - CHỈ LOG, không thoát
@@ -138,6 +143,22 @@ async function main(): Promise<void> {
       // Break hết hạn, scheduler đã tự kiểm tra vẫn còn trong khung giờ mới gọi tới đây
       if (!focusServiceRef) return;
       await focusServiceRef.scheduleActivate();
+    },
+    async (action: "start" | "end") => {
+      if (!focusServiceRef) return;
+      if (action === "start") {
+        await focusServiceRef.sleepActivate();
+      } else {
+        // Sleep Mode kết thúc (05:00) - CHỈ gỡ profile nếu không còn lý do nào
+        // khác (manual/duration/recurring schedule) đang giữ Focus bật, tránh
+        // tắt nhầm Focus nếu user đã /focus on từ trước hoặc recurring schedule
+        // khác đang chồng giờ. isFocusActiveNow() tại đúng thời điểm hhmm=05:00
+        // tự động không tính Sleep Mode nữa (đã hết theo định nghĩa), nên kết
+        // quả false nghĩa là THỰC SỰ không còn gì giữ Focus bật.
+        if (!focusServiceRef.isFocusActiveNow()) {
+          await focusServiceRef.sleepDeactivate();
+        }
+      }
     }
   );
 
@@ -150,6 +171,7 @@ async function main(): Promise<void> {
     deviceCommands,
     focusScheduler,
     config.constants.restrictedAppsFilePath,
+    config.constants.focusWebsitesFilePath,
     safeModeService,
     bus
   );
@@ -164,7 +186,12 @@ async function main(): Promise<void> {
     bus
   );
 
-  const blacklistService = createBlacklistService(deviceCommands, config.constants.blacklistFilePath, bus);
+  const blacklistService = createBlacklistService(
+    deviceCommands,
+    config.constants.blacklistFilePath,
+    config.constants.blacklistWebsitesFilePath,
+    bus
+  );
 
   const deviceInfoPoller = createDeviceInfoPoller(deviceCommands);
   const deviceInfoService = createDeviceInfoService(deviceCommands, deviceInfoPoller);
@@ -176,6 +203,13 @@ async function main(): Promise<void> {
     bus
   );
   const appManagementService = createAppManagementService(deviceCommands, bus);
+
+  const alarmService = createAlarmService(
+    config.constants.alarmStateFilePath,
+    config.secrets.callMeBotTarget,
+    config.constants.alarmTimeZone,
+    config.secrets.callMeBotApiToken
+  );
 
   // 6. Event subscribers
   attachHistoryLogger(bus, config.constants.historyFilePath);
@@ -220,6 +254,8 @@ async function main(): Promise<void> {
     createRemoveProfileCommand(deviceCommands),
     createInstallProfileCommand(deviceCommands, config.constants.dataDir),
     createHelpCommand(),
+    createAlarmStopCommand(alarmService),
+    createAlarmStatusCommand(alarmService),
   ];
 
   const router = createRouter(
@@ -248,6 +284,7 @@ async function main(): Promise<void> {
   focusScheduler.start();
   deviceInfoPoller.start(config.constants.deviceInfoPollIntervalMs);
   markLostService.resumeIfActive();
+  alarmService.start();
 
   logger.info("[main] Bot đã khởi động thành công.");
 }

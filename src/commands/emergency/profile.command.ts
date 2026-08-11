@@ -1,6 +1,7 @@
 import { AuthTier, CommandContext, CommandDefinition } from "../../types/command.types";
 import { DeviceCommands } from "../../micromdm/deviceCommands";
 import { loadProfileFileBase64 } from "../../profiles/fileProfile";
+import { BOT_MANAGED_PROFILE_IDENTIFIERS } from "../../profiles/profileBuilder";
 import { ValidationError } from "../../utils/errors";
 
 /**
@@ -70,6 +71,12 @@ export function createRemoveProfileCommand(deviceCommands: DeviceCommands): Comm
         throw new ValidationError(
           "Cú pháp: /removeprofile <password> <profileIdentifier>\n" +
             "Dùng /profiles <password> để xem danh sách profileIdentifier hiện có."
+        );
+      }
+      if (BOT_MANAGED_PROFILE_IDENTIFIERS.includes(profileIdentifier)) {
+        throw new ValidationError(
+          `⛔ "${profileIdentifier}" là profile do BOT quản lý (Focus/Blacklist/Safe Mode) - không được xoá qua /removeprofile.\n` +
+            "Dùng /focus off, /safe off, hoặc chỉnh danh sách app/website tương ứng thay vì gỡ thẳng profile."
         );
       }
       await deviceCommands.removeProfile(profileIdentifier);

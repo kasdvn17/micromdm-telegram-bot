@@ -6,6 +6,7 @@ import { getLogger } from "../utils/logger";
 type ExpireCallback = () => Promise<void>;
 type RecurringTriggerCallback = (action: "start" | "end") => Promise<void>;
 type BreakExpireCallback = () => Promise<void>;
+type SleepTriggerCallback = (action: "start" | "end") => Promise<void>;
 
 function todayDateStr(now: Date): string {
   // QUAN TRỌNG: phải dùng local date (khớp với hhmmOf() dùng getHours/getMinutes local),
@@ -38,14 +39,26 @@ export class FocusScheduler {
   /** Tổng thời gian TẤT CẢ các lần /focus break cộng dồn tối đa trong 1 ngày. */
   static readonly MAX_BREAK_TOTAL_MS_PER_DAY = 60 * 60 * 1000; // 1 giờ
 
+  /**
+   * Sleep Mode: khung giờ CỐ ĐỊNH, hardcode (KHÔNG cấu hình qua lệnh/JSON
+   * như recurring schedule thường), qua đêm (22:00 -> 05:00 sáng hôm sau).
+   * KHÔNG THỂ TẮT: không có /sleep off, không bị ảnh hưởng bởi /focus off,
+   * /focus cancel, /focus break, /focus schedule skip - toàn bộ các lệnh
+   * đó đều bị chặn khi đang trong khung giờ này (xem focusService.ts).
+   */
+  static readonly SLEEP_START = "22:00";
+  static readonly SLEEP_END = "05:00";
+
   private tickHandle: NodeJS.Timeout | null = null;
   private readonly firedRecurringToday = new Set<string>(); // key: `${scheduleId}:${dateStr}:${start|end}`
+  private readonly firedSleepToday = new Set<string>(); // key: `${dateStr}:${start|end}`
 
   constructor(
     private readonly filePath: string,
     private readonly onDurationExpire: ExpireCallback,
     private readonly onRecurringTrigger: RecurringTriggerCallback,
-    private readonly onBreakExpire: BreakExpireCallback
+    private readonly onBreakExpire: BreakExpireCallback,
+    private readonly onSleepTrigger: SleepTriggerCallback
   ) {}
 
   start(tickIntervalMs = 60_000): void {
@@ -174,6 +187,19 @@ export class FocusScheduler {
   /** true nếu hiện tại đang trong 1 khung giờ recurring active (chưa tính break). */
   isWithinScheduleWindowToday(now: Date = new Date()): boolean {
     return this.scheduleWindowToday(now) !== null;
+  }
+
+  /**
+   * true nếu hiện tại đang trong khung giờ Sleep Mode CỐ ĐỊNH (22:00 -> 05:00
+   * sáng hôm sau, qua đêm). Khác isWithinScheduleWindowToday() - không đọc
+   * từ `schedules` trong state, hardcode SLEEP_START/SLEEP_END, không thể
+   * skip/disable qua bất kỳ lệnh nào.
+   */
+  isWithinSleepWindow(now: Date = new Date()): boolean {
+    const hhmm = hhmmOf(now);
+    // Qua đêm: active nếu >= 22:00 (tối nay) HOẶC < 05:00 (sáng nay, phần đuôi
+    // của khung bắt đầu từ tối hôm trước).
+    return hhmm >= FocusScheduler.SLEEP_START || hhmm < FocusScheduler.SLEEP_END;
   }
 
   isOnBreak(now: Date = new Date()): boolean {
@@ -337,6 +363,35 @@ export class FocusScheduler {
         }
       }
     }
+
+    // 4. Xử lý Sleep Mode (cố định, KHÔNG đọc từ `schedules`, không thể skip/tắt).
+    // Dedup key theo dateStr của NGÀY XẢY RA sự kiện đó (start lúc 22:00 của
+    // ngày D, end lúc 05:00 của ngày D+1) - tự nhiên khác nhau vì khác ngày,
+    // không cần logic đặc biệt cho qua đêm ở đây.
+    const sleepStartKey = `${dateStr}:sleepstart`;
+    const sleepEndKey = `${dateStr}:sleepend`;
+
+    if (hhmm === FocusScheduler.SLEEP_START && !this.firedSleepToday.has(sleepStartKey)) {
+      this.firedSleepToday.add(sleepStartKey);
+      try {
+        await this.onSleepTrigger("start");
+      } catch (err) {
+        getLogger().error(
+          "[focusScheduler] onSleepTrigger('start') lỗi - Sleep Mode có thể KHÔNG được kích hoạt",
+          { error: (err as Error).message }
+        );
+      }
+    }
+    if (hhmm === FocusScheduler.SLEEP_END && !this.firedSleepToday.has(sleepEndKey)) {
+      this.firedSleepToday.add(sleepEndKey);
+      try {
+        await this.onSleepTrigger("end");
+      } catch (err) {
+        getLogger().error("[focusScheduler] onSleepTrigger('end') lỗi", {
+          error: (err as Error).message,
+        });
+      }
+    }
   }
 
   private readState(): SchedulerState {
@@ -380,6 +435,20 @@ export class FocusScheduler {
         getLogger().info(
           "[focusScheduler] Reconcile lúc khởi động: đang trong khung giờ nhưng đang break - không bật lại"
         );
+      }
+    }
+
+    // Sleep Mode: không có khái niệm "break", nên chỉ cần reconcile is-active,
+    // không cần check break như recurring ở trên.
+    if (this.isWithinSleepWindow(now)) {
+      this.firedSleepToday.add(`${dateStr}:sleepstart`);
+      getLogger().info("[focusScheduler] Reconcile lúc khởi động: đang trong Sleep Mode, bật lại Focus");
+      try {
+        await this.onSleepTrigger("start");
+      } catch (err) {
+        getLogger().error("[focusScheduler] reconcileOnStart (sleep) lỗi", {
+          error: (err as Error).message,
+        });
       }
     }
 

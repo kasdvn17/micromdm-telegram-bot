@@ -41,6 +41,12 @@ export interface AppConstants {
    *  độc lập với danh sách của Focus Mode - dùng khi cho người khác mượn máy. */
   sensitiveAppsFilePath: string;
 
+  /** Đường dẫn file JSON chứa danh sách website bị chặn cho Focus Mode (data/focus-websites.json) */
+  focusWebsitesFilePath: string;
+
+  /** Đường dẫn file JSON chứa danh sách website bị chặn cho Blacklist (data/blacklist-websites.json) */
+  blacklistWebsitesFilePath: string;
+
   /**
    * Đường dẫn file .plist (mobileconfig XML) chứa profile MẶC ĐỊNH tự động
    * cài khi phát hiện enrollment mới. Lưu ra file thay vì hardcode trong code
@@ -65,6 +71,12 @@ export interface AppConstants {
    * nhưng chưa xác nhận (device có thể đang offline).
    */
   commandResultTimeoutMs: number;
+
+  /** Đường dẫn state JSON của báo thức */
+  alarmStateFilePath: string;
+
+  /** Múi giờ dùng cho báo thức */
+  alarmTimeZone: string;
 }
 
 const DEFAULT_DEVICE_INFO_POLL_INTERVAL_MS = 60 * 60 * 1000; // 1 tiếng
@@ -111,11 +123,18 @@ export function loadConstants(env: NodeJS.ProcessEnv = process.env): AppConstant
       path.join(DATA_DIR, "restricted-apps.json"),
     sensitiveAppsFilePath:
       env.SENSITIVE_APPS_FILE_PATH?.trim() || path.join(DATA_DIR, "sensitive_apps.json"),
+    focusWebsitesFilePath:
+      env.FOCUS_WEBSITES_FILE_PATH?.trim() || path.join(DATA_DIR, "focus-websites.json"),
+    blacklistWebsitesFilePath:
+      env.BLACKLIST_WEBSITES_FILE_PATH?.trim() || path.join(DATA_DIR, "blacklist-websites.json"),
     defaultProfilePlistPath:
       env.DEFAULT_PROFILE_PLIST_PATH?.trim() || path.join(DATA_DIR, "default.plist"),
     checkinStateFilePath:
       env.CHECKIN_STATE_FILE_PATH?.trim() || path.join(DATA_DIR, "checkin-state.json"),
     webhookPort: parseIntEnv(env.WEBHOOK_PORT, 6364),
     commandResultTimeoutMs: parseIntEnv(env.COMMAND_RESULT_TIMEOUT_MS, 30_000),
+    alarmStateFilePath:
+      env.ALARM_STATE_FILE_PATH?.trim() || path.join(DATA_DIR, "alarm-state.json"),
+    alarmTimeZone: env.ALARM_TIMEZONE?.trim() || "Asia/Ho_Chi_Minh",
   };
 }

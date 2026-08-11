@@ -76,3 +76,52 @@ export function removeSensitiveBundleId(sensitiveAppsFilePath: string, bundleId:
   writeJsonState(sensitiveAppsFilePath, data);
   return data.bundleIds;
 }
+
+interface WebsiteListFile {
+  websites: string[];
+}
+
+/**
+ * Danh sách website bị chặn cho Focus Mode (data/focus-websites.json) -
+ * dùng chung profile với Focus (FOCUS_PROFILE_IDENTIFIER), payload
+ * com.apple.webcontent-filter thêm vào CÙNG profile với app restriction.
+ */
+export function loadFocusWebsites(focusWebsitesFilePath: string): string[] {
+  const data = readJsonState<WebsiteListFile>(focusWebsitesFilePath, { websites: [] });
+  return data.websites;
+}
+
+export function addFocusWebsite(focusWebsitesFilePath: string, url: string): string[] {
+  const data = readJsonState<WebsiteListFile>(focusWebsitesFilePath, { websites: [] });
+  if (!data.websites.includes(url)) {
+    data.websites.push(url);
+    writeJsonState(focusWebsitesFilePath, data);
+  }
+  return data.websites;
+}
+
+export function removeFocusWebsite(focusWebsitesFilePath: string, url: string): string[] {
+  const data = readJsonState<WebsiteListFile>(focusWebsitesFilePath, { websites: [] });
+  data.websites = data.websites.filter((w) => w !== url);
+  writeJsonState(focusWebsitesFilePath, data);
+  return data.websites;
+}
+
+/**
+ * Danh sách website bị chặn cho Blacklist (data/blacklist-websites.json) -
+ * ĐỘC LẬP với website list của Focus, dùng chung profile với Blacklist app
+ * (BLACKLIST_PROFILE_IDENTIFIER).
+ */
+export function loadBlacklistWebsites(blacklistWebsitesFilePath: string): string[] {
+  const data = readJsonState<WebsiteListFile>(blacklistWebsitesFilePath, { websites: [] });
+  return data.websites;
+}
+
+export function addBlacklistWebsite(blacklistWebsitesFilePath: string, url: string): string[] {
+  const data = readJsonState<WebsiteListFile>(blacklistWebsitesFilePath, { websites: [] });
+  if (!data.websites.includes(url)) {
+    data.websites.push(url);
+    writeJsonState(blacklistWebsitesFilePath, data);
+  }
+  return data.websites;
+}
