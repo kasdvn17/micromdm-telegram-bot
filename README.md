@@ -38,9 +38,9 @@ Emergency không yêu cầu đúng username; vì vậy `EMERGENCY_PASSWORD` ph�
 /focus schedule add <start> <end> [days]
 /focus schedule enable|disable <id>
 /focus schedule skip [id]
-/focus blockadd|blockremove <bundleId>
+/focus blockadd <bundleId>
 /focus blocklist
-/focus blwadd|blwremove <website>
+/focus blwadd <website>
 /focus blwlist
 
 /task add <problem>

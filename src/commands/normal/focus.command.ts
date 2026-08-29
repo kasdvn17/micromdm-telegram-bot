@@ -131,12 +131,7 @@ export function createFocusCommand(
         }
 
         case "blockremove": {
-          const bundleId = rest[0];
-          if (!bundleId) throw new ValidationError("Cú pháp: /focus blockremove <bundleId>");
-          const appliedNow = await focusService.removeBlockApplication(bundleId);
-          return appliedNow
-            ? `✅ Đã gỡ "${bundleId}" khỏi danh sách chặn và áp dụng NGAY (Focus/Safe Mode đang bật).`
-            : `✅ Đã gỡ "${bundleId}" khỏi danh sách chặn. Sẽ áp dụng khi bật Focus lần tới (hiện Focus đang TẮT nên chưa đẩy xuống máy).`;
+          throw new ValidationError("Lệnh /focus blockremove đã bị vô hiệu hóa.");
         }
 
         case "blocklist": {
@@ -156,12 +151,7 @@ export function createFocusCommand(
         }
 
         case "blwremove": {
-          const url = rest[0];
-          if (!url) throw new ValidationError("Cú pháp: /focus blwremove <website>");
-          const appliedNow = await focusService.removeBlockWebsite(url);
-          return appliedNow
-            ? `✅ Đã gỡ website "${url}" khỏi danh sách chặn và áp dụng NGAY (Focus đang bật).`
-            : `✅ Đã gỡ website "${url}" khỏi danh sách chặn. Sẽ áp dụng khi bật Focus lần tới (hiện Focus đang TẮT nên chưa đẩy xuống máy).`;
+          throw new ValidationError("Lệnh /focus blwremove đã bị vô hiệu hóa.");
         }
 
         case "blwlist": {
@@ -173,7 +163,7 @@ export function createFocusCommand(
 
         default: {
           // không match subcommand nào -> thử parse như duration, vd "/focus 90m"
-          if (!sub) throw new ValidationError("Cú pháp: /focus on|off|status|remaining|extend <d>|cancel|break [d]|schedule|blockadd|blockremove|blocklist|blwadd|blwremove|blwlist ...");
+          if (!sub) throw new ValidationError("Cú pháp: /focus on|off|status|remaining|extend <d>|cancel|break [d]|schedule|blockadd|blocklist|blwadd|blwlist ...");
           const ms = parseDurationToMs(sub);
           await focusService.enable(ms);
           return `🎯 Focus mode đã BẬT trong ${formatDuration(ms)}.`;

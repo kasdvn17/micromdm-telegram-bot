@@ -18,9 +18,9 @@ Quy ước: lệnh Emergency/Two-Factor đặt password ngay sau tên lệnh:
 /focus schedule add <start> <end> [days]
 /focus schedule enable|disable <id>
 /focus schedule skip [id]
-/focus blockadd|blockremove <bundleId>
+/focus blockadd <bundleId>
 /focus blocklist
-/focus blwadd|blwremove <website>
+/focus blwadd <website>
 /focus blwlist
 
 /task add <problem> — thêm bài Codeforces phải AC trước khi break
