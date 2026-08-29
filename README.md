@@ -12,7 +12,7 @@ Telegram bot cá nhân để quản lý một thiết bị iOS Supervised thông
 - Blacklist app.
 - Theo dõi webhook MicroMDM và lưu lịch sử/log.
 - Tự động xử lý enrollment mới và profile mặc định.
-- Utility Codeforces để lấy toàn bộ submission public và kiểm tra user đã Accepted một bài public hay chưa.
+- Codeforces task gate: yêu cầu AC các bài đã thêm trước khi được phép Focus break.
 
 ## Quyền truy cập
 
@@ -42,6 +42,10 @@ Emergency không yêu cầu đúng username; vì vậy `EMERGENCY_PASSWORD` ph�
 /focus blocklist
 /focus blwadd|blwremove <website>
 /focus blwlist
+
+/task add <problem>
+/task list
+/refresh
 
 /notify on|off|test
 /blacklist add <bundleId>
@@ -214,6 +218,8 @@ const solved = await hasUserSolvedPublicProblem("tourist", 4, "A");
 
 `hasUserSolvedPublicProblem()` chỉ trả `true` khi bài vẫn có trong problemset public và user có submission với `verdict === "OK"` cho đúng `contestId` và `index`.
 
+Đặt `CODEFORCES_HANDLE` trong `.env`, sau đó dùng `/task add 4A` (cũng hỗ trợ URL hoặc đúng tên bài). `/refresh` lấy submission mới nhất, đánh dấu các bài đã AC và `/focus break` sẽ bị từ chối khi còn ít nhất một task active.
+
 ## Dữ liệu
 
 Bot lưu trạng thái bằng JSON trong `data/`, gồm:
@@ -224,6 +230,7 @@ Bot lưu trạng thái bằng JSON trong `data/`, gồm:
 - `schedule.json` — Focus schedule.
 - `history.json` — lịch sử sự kiện.
 - `mark-lost-state.json` — trạng thái Mark Lost.
+- `codeforces-tasks.json` — task Codeforces active/đã AC theo Telegram user ID.
 - `logs/` — log theo ngày.
 
 ## Bảo mật

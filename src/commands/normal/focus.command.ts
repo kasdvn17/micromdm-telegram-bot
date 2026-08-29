@@ -2,10 +2,14 @@ import { AuthTier, CommandContext, CommandDefinition } from "../../types/command
 import { FocusServiceApi } from "../../services/focusService";
 import { parseDurationToMs, formatDuration, normalizeTimeOfDay, parseDaysOfWeek } from "../../utils/time";
 import { ValidationError } from "../../utils/errors";
+import { CodeforcesTaskServiceApi } from "../../services/codeforcesTaskService";
 
 const DAY_NAMES = ["CN", "T2", "T3", "T4", "T5", "T6", "T7"];
 
-export function createFocusCommand(focusService: FocusServiceApi): CommandDefinition {
+export function createFocusCommand(
+  focusService: FocusServiceApi,
+  codeforcesTasks?: Pick<CodeforcesTaskServiceApi, "assertBreakAllowed">
+): CommandDefinition {
   return {
     name: "focus",
     tier: AuthTier.Normal,
@@ -40,6 +44,7 @@ export function createFocusCommand(focusService: FocusServiceApi): CommandDefini
         }
 
         case "break": {
+          codeforcesTasks?.assertBreakAllowed(ctx.message.telegramId);
           const durationArg = rest[0] ?? "15m";
           const ms = parseDurationToMs(durationArg);
           await focusService.breakFocus(ms);

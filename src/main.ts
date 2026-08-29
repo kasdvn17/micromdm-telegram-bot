@@ -16,6 +16,7 @@ import { createDeviceInfoService } from "./services/deviceInfoService";
 import { createActivationLockService } from "./services/activationLockService";
 import { createDefaultProfileService } from "./services/defaultProfileService";
 import { createAppManagementService } from "./services/appManagementService";
+import { createCodeforcesTaskService } from "./services/codeforcesTaskService";
 import { FocusScheduler } from "./scheduler/focusScheduler";
 import { createMarkLostPoller } from "./scheduler/markLostPoller";
 import { createDeviceInfoPoller } from "./scheduler/deviceInfoPoller";
@@ -48,6 +49,7 @@ import {
 } from "./commands/emergency/app.command";
 import { createInstallProfileCommand, createListProfilesCommand, createRemoveProfileCommand } from "./commands/emergency/profile.command";
 import { createHelpCommand } from "./commands/normal/help.command";
+import { createRefreshCommand, createTaskCommand } from "./commands/normal/task.command";
 
 async function main(): Promise<void> {
   // Bắt toàn cục unhandledRejection/uncaughtException - CHỈ LOG, không thoát
@@ -197,6 +199,10 @@ async function main(): Promise<void> {
     bus
   );
   const appManagementService = createAppManagementService(deviceCommands, bus);
+  const codeforcesTaskService = createCodeforcesTaskService(
+    config.constants.codeforcesTasksFilePath,
+    config.constants.codeforcesHandle
+  );
 
   // 6. Event subscribers
   attachHistoryLogger(bus, config.constants.historyFilePath);
@@ -219,7 +225,9 @@ async function main(): Promise<void> {
 
   // 8. Đăng ký toàn bộ command
   const commands: CommandDefinition[] = [
-    createFocusCommand(focusService),
+    createFocusCommand(focusService, codeforcesTaskService),
+    createTaskCommand(codeforcesTaskService),
+    createRefreshCommand(codeforcesTaskService),
     createNotifyCommand(notificationService),
     createPingCommand(),
     createHealthCommand(),

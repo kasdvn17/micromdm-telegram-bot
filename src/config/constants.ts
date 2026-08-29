@@ -28,6 +28,12 @@ export interface AppConstants {
   /** Đường dẫn file lưu event history */
   historyFilePath: string;
 
+  /** Codeforces handle được dùng để kiểm tra task của tài khoản Telegram chính. */
+  codeforcesHandle?: string;
+
+  /** Đường dẫn file lưu task Codeforces theo Telegram user ID. */
+  codeforcesTasksFilePath: string;
+
   /** Đường dẫn file lưu focus schedule (duration-based + recurring) */
   scheduleFilePath: string;
 
@@ -115,6 +121,9 @@ export function loadConstants(env: NodeJS.ProcessEnv = process.env): AppConstant
     logDir: env.LOG_DIR?.trim() || path.join(DATA_DIR, "logs"),
     historyFilePath:
       env.HISTORY_FILE_PATH?.trim() || path.join(DATA_DIR, "history.json"),
+    codeforcesHandle: env.CODEFORCES_HANDLE?.trim() || undefined,
+    codeforcesTasksFilePath:
+      env.CODEFORCES_TASKS_FILE_PATH?.trim() || path.join(DATA_DIR, "codeforces-tasks.json"),
     scheduleFilePath:
       env.SCHEDULE_FILE_PATH?.trim() || path.join(DATA_DIR, "schedule.json"),
     blacklistFilePath:

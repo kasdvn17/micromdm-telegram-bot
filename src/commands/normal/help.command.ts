@@ -23,6 +23,10 @@ Quy ước: lệnh Emergency/Two-Factor đặt password ngay sau tên lệnh:
 /focus blwadd|blwremove <website>
 /focus blwlist
 
+/task add <problem> — thêm bài Codeforces phải AC trước khi break
+/task list — xem task active/đã AC
+/refresh — kiểm tra submission và cập nhật task đã AC
+
 /notify on|off|test
 /blacklist add <bundleId>
 /blacklist list
