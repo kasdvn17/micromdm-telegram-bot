@@ -15,6 +15,9 @@ export interface Secrets {
    */
   authorizedTelegramUsername: string;
 
+  /** Chat ID nhận notification chủ động; có thể bỏ trống và bind từ tin nhắn đầu tiên. */
+  authorizedTelegramChatId?: number;
+
   /**
    * Mật khẩu dùng cho:
    *  - Toàn bộ Emergency commands (chỉ cần đúng mật khẩu, không cần đúng username)
@@ -76,12 +79,24 @@ export function loadSecrets(env: NodeJS.ProcessEnv = process.env): Secrets {
     );
   }
 
+  const chatIdRaw = env.AUTHORIZED_TELEGRAM_CHAT_ID?.trim();
+  const authorizedTelegramChatId = chatIdRaw ? Number(chatIdRaw) : undefined;
+  if (
+    chatIdRaw &&
+    (!Number.isSafeInteger(authorizedTelegramChatId) || authorizedTelegramChatId === 0)
+  ) {
+    throw new Error(
+      "[config/secrets] AUTHORIZED_TELEGRAM_CHAT_ID phải là một số nguyên Telegram chat ID hợp lệ."
+    );
+  }
+
   return {
     telegramBotToken: env.TELEGRAM_BOT_TOKEN!.trim(),
     // chuẩn hoá: bỏ "@" nếu người dùng lỡ điền kèm, lowercase để so khớp không phân biệt hoa/thường
     authorizedTelegramUsername: env.AUTHORIZED_TELEGRAM_USERNAME!.trim()
       .replace(/^@/, "")
       .toLowerCase(),
+    authorizedTelegramChatId,
     emergencyPassword: env.EMERGENCY_PASSWORD!,
     microMdmUrl: env.MICROMDM_URL!.trim().replace(/\/+$/, ""),
     microMdmApiKey: env.MICROMDM_API_KEY!.trim(),

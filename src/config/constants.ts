@@ -64,6 +64,9 @@ export interface AppConstants {
    */
   webhookPort: number;
 
+  /** URL path duy nhất chấp nhận webhook MicroMDM. */
+  webhookPath: string;
+
   /**
    * Timeout (ms) khi chờ kết quả một command cần phản hồi đồng bộ-giả
    * (vd: DeviceInformation, DeviceLocation) thông qua webhook Acknowledge.
@@ -103,6 +106,10 @@ export function loadConstants(env: NodeJS.ProcessEnv = process.env): AppConstant
     env.MARK_LOST_POLL_INTERVAL_MS,
     DEFAULT_MARK_LOST_POLL_INTERVAL_MS
   );
+  const configuredWebhookPath = env.WEBHOOK_PATH?.trim() || "/webhook/micromdm";
+  const webhookPath = configuredWebhookPath.startsWith("/")
+    ? configuredWebhookPath
+    : `/${configuredWebhookPath}`;
 
   return {
     dataDir: DATA_DIR,
@@ -133,6 +140,7 @@ export function loadConstants(env: NodeJS.ProcessEnv = process.env): AppConstant
     checkinStateFilePath:
       env.CHECKIN_STATE_FILE_PATH?.trim() || path.join(DATA_DIR, "checkin-state.json"),
     webhookPort: parseIntEnv(env.WEBHOOK_PORT, 6364),
+    webhookPath,
     commandResultTimeoutMs: parseIntEnv(env.COMMAND_RESULT_TIMEOUT_MS, 30_000),
     alarmStateFilePath:
       env.ALARM_STATE_FILE_PATH?.trim() || path.join(DATA_DIR, "alarm-state.json"),

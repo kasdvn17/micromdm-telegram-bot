@@ -2,10 +2,8 @@ import { EventBus } from "./eventBus";
 import { AppEvent } from "../types/event.types";
 import { NotificationServiceApi } from "../services/notificationService";
 
-/**
- * Đã rollback: KHÔNG lọc heartbeat nữa - mọi event đều được notify.
- */
 function shouldNotify(event: AppEvent): boolean {
+  if (event.type === "device.heartbeat") return false;
   if (
     (event.type === "mdm.command.queued" ||
       event.type === "mdm.command.acked" ||

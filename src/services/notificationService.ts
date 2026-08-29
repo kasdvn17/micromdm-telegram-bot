@@ -9,20 +9,22 @@ export interface NotificationServiceApi {
 }
 
 /**
- * Gửi notification tới chat của tài khoản chính chủ. `chatId` chưa biết
- * tại thời điểm khởi tạo (Telegram không cấp sẵn chatId qua config - chỉ
- * biết được khi chính chủ nhắn tin lần đầu), nên khởi tạo với `null` và
- * bind qua `setChatId()` tại main.ts khi bắt được tin nhắn đầu tiên từ
- * đúng Authorized Username. Trước khi bind, `send()` là no-op (log warning).
+ * Gửi notification tới chat của tài khoản chính chủ. Nếu đã cấu hình
+ * AUTHORIZED_TELEGRAM_CHAT_ID thì dùng ngay từ lúc khởi động; nếu chưa có,
+ * main.ts bind qua `setChatId()` khi nhận tin nhắn đầu tiên từ đúng username.
+ * Trước khi bind, `send()` là no-op (log warning).
  *
  * `enabled` mặc định true, có thể tắt/bật qua /notify on|off - lưu in-memory
  * (không cần persist ra file vì đây là preference phiên chạy hiện tại của bot,
  * và bot luôn khởi động lại với mặc định "bật" để không âm thầm im lặng mãi
  * nếu quên bật lại sau khi restart).
  */
-export function createNotificationService(bot: TelegramBot): NotificationServiceApi {
+export function createNotificationService(
+  bot: TelegramBot,
+  initialChatId?: number
+): NotificationServiceApi {
   let enabled = true;
-  let chatId: number | null = null;
+  let chatId: number | null = initialChatId ?? null;
 
   return {
     async send(message: string): Promise<void> {

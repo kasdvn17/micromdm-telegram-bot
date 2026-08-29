@@ -20,13 +20,21 @@ export function createAppManagementService(
       if (!manifestURL.startsWith("https://")) {
         throw new ValidationError("ManifestURL phải là HTTPS URL trỏ tới file Manifest.plist.");
       }
-      await deviceCommands.installApplication(manifestURL, true);
-      bus.publish({ type: "mdm.command.queued", command: "InstallApplication", commandUUID: "" });
+      const result = await deviceCommands.installApplication(manifestURL, true);
+      bus.publish({
+        type: "mdm.command.queued",
+        command: result.requestType,
+        commandUUID: result.commandUUID,
+      });
     },
 
     async installFromAppStore(iTunesStoreID: number): Promise<void> {
-      await deviceCommands.installApplicationFromAppStore(iTunesStoreID);
-      bus.publish({ type: "mdm.command.queued", command: "InstallApplication", commandUUID: "" });
+      const result = await deviceCommands.installApplicationFromAppStore(iTunesStoreID);
+      bus.publish({
+        type: "mdm.command.queued",
+        command: result.requestType,
+        commandUUID: result.commandUUID,
+      });
     },
 
     async listApps(managedOnly: boolean) {
@@ -34,8 +42,12 @@ export function createAppManagementService(
     },
 
     async removeApp(bundleId: string): Promise<void> {
-      await deviceCommands.removeApplication(bundleId);
-      bus.publish({ type: "mdm.command.queued", command: "RemoveApplication", commandUUID: "" });
+      const result = await deviceCommands.removeApplication(bundleId);
+      bus.publish({
+        type: "mdm.command.queued",
+        command: result.requestType,
+        commandUUID: result.commandUUID,
+      });
     },
   };
 }

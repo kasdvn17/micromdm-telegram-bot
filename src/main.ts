@@ -109,11 +109,10 @@ async function main(): Promise<void> {
 
   // 3. Telegram bot + notification service
   const bot = createBot(config.secrets.telegramBotToken);
-  // Bot chỉ có 1 chat chính chủ - lấy chatId từ tin nhắn đầu tiên do chính
-  // chủ gửi (đơn giản hoá: coi telegramId của Authorized Username == chatId
-  // cho chat riêng 1-1, đúng với cách Telegram cấp ID cho private chat).
-  let primaryChatId: number | null = null;
-  const notificationService = createNotificationService(bot);
+  // Ưu tiên chatId cấu hình sẵn để notify hoạt động ngay sau boot; nếu bỏ trống,
+  // bind từ tin nhắn đầu tiên của Authorized Username.
+  let primaryChatId: number | null = config.secrets.authorizedTelegramChatId ?? null;
+  const notificationService = createNotificationService(bot, primaryChatId ?? undefined);
 
   // 4. Auth
   const emergencyAuthService = createEmergencyAuthService(
@@ -226,6 +225,7 @@ async function main(): Promise<void> {
   startWebhookServer(
     {
       port: config.constants.webhookPort,
+      path: config.constants.webhookPath,
       deviceUUID: config.constants.deviceUUID,
       seenDevicesFilePath: "./data/seen-devices.json",
       checkinStateFilePath: config.constants.checkinStateFilePath,

@@ -27,10 +27,10 @@ export function createDiscordCallService(
   token: string,
   targetUserId: string,
 ): DiscordCallServiceApi {
-  const client = new Client({
-    checkUpdate: false,
-    patchVoice: true,
-  });
+  // v3.7.1 không khai báo checkUpdate/patchVoice trong ClientOptions;
+  // truyền các key này khiến typecheck sai và thư viện cũng không cần chúng
+  // để dùng DMChannel.sync()/ring().
+  const client = new Client();
 
   let ready = false;
   let loginPromise: Promise<void> | null = null;

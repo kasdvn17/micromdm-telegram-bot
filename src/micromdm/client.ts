@@ -39,6 +39,7 @@ interface PendingCommand {
  */
 export class MicroMdmClient {
   private readonly pending = new Map<string, PendingCommand>();
+  private readonly requestTypes = new Map<string, MdmRequestType>();
 
   constructor(private readonly options: MicroMdmClientOptions) {}
 
@@ -63,11 +64,9 @@ export class MicroMdmClient {
     commandUUID: string,
     status: "Acknowledged" | "Error" | "NotNow",
     rawPayloadBase64?: string
-  ): void {
+  ): MdmRequestType | undefined {
+    const requestType = this.requestTypes.get(commandUUID);
     const pending = this.pending.get(commandUUID);
-    if (!pending) return; // không có ai đang chờ command này (fire-and-forget) - bỏ qua
-    clearTimeout(pending.timeout);
-    this.pending.delete(commandUUID);
 
     let parsed: Record<string, unknown> = {};
     if (rawPayloadBase64)
@@ -77,27 +76,63 @@ export class MicroMdmClient {
       raw: parsed,
     });
 
+    // NotNow là phản hồi tạm thời: MicroMDM có thể gửi lại cùng command sau đó.
+    // Giữ pending promise cho tới Acknowledged/Error hoặc timeout.
+    if (status === "NotNow") return requestType;
+
+    this.requestTypes.delete(commandUUID);
+    if (!pending) return requestType;
+
+    clearTimeout(pending.timeout);
+    this.pending.delete(commandUUID);
+
+    if (status === "Error") {
+      pending.reject(
+        new MicroMdmError(
+          `Thiết bị trả lỗi cho command ${pending.requestType} ` +
+            `(commandUUID=${commandUUID}): ${JSON.stringify(parsed)}`
+        )
+      );
+      return requestType;
+    }
+
     pending.resolve({
       commandUUID,
       requestType: pending.requestType,
       status,
       raw: parsed,
     });
+    return requestType;
   }
 
   /** Queue command, không chờ kết quả (fire-and-forget) - dùng cho Lock/Restart/PlaySound... */
   async queueCommand(payload: MdmCommandPayload): Promise<MdmCommandQueuedResult> {
     const commandUUID = randomUUID();
+    return this.queueCommandWithUUID(payload, commandUUID);
+  }
+
+  private async queueCommandWithUUID(
+    payload: MdmCommandPayload,
+    commandUUID: string
+  ): Promise<MdmCommandQueuedResult> {
+    this.trackRequestType(commandUUID, payload.request_type);
     const body = { ...payload, command_uuid: commandUUID };
 
-    const res = await fetch(`${this.options.baseUrl}/v1/commands`, {
-      method: "POST",
-      headers: this.authHeaders(),
-      body: JSON.stringify(body),
-    });
+    let res;
+    try {
+      res = await fetch(`${this.options.baseUrl}/v1/commands`, {
+        method: "POST",
+        headers: this.authHeaders(),
+        body: JSON.stringify(body),
+      });
+    } catch (err) {
+      this.requestTypes.delete(commandUUID);
+      throw err;
+    }
 
     if (!res.ok) {
       const text = await res.text();
+      this.requestTypes.delete(commandUUID);
       throw new MicroMdmError(
         `MicroMDM trả lỗi khi queue command ${payload.request_type}`,
         res.status,
@@ -125,26 +160,16 @@ export class MicroMdmClient {
    * Dùng cho các command cần đọc dữ liệu trả về (DeviceInformation, DeviceLocation).
    */
   async sendCommandAndWait(payload: MdmCommandPayload): Promise<MdmCommandResult> {
-    const queued = await this.queueCommand(payload);
-
-    return new Promise<MdmCommandResult>((resolve, reject) => {
-      const timeout = setTimeout(() => {
-        this.pending.delete(queued.commandUUID);
-        reject(
-          new MicroMdmError(
-            `Timeout chờ Acknowledge cho command ${payload.request_type} ` +
-              `(commandUUID=${queued.commandUUID}). Thiết bị có thể đang offline.`
-          )
-        );
-      }, this.options.commandResultTimeoutMs);
-
-      this.pending.set(queued.commandUUID, {
-        resolve,
-        reject,
-        requestType: payload.request_type,
-        timeout,
-      });
-    });
+    const commandUUID = randomUUID();
+    const waitPromise = this.createPendingPromise(commandUUID, payload.request_type);
+    // Pending phải tồn tại TRƯỚC POST/push để webhook đến nhanh không bị bỏ lỡ.
+    try {
+      await this.queueCommandWithUUID(payload, commandUUID);
+    } catch (err) {
+      this.cancelPending(commandUUID);
+      throw err;
+    }
+    return waitPromise;
   }
 
   /**
@@ -164,33 +189,27 @@ export class MicroMdmClient {
   async sendRawCommandAndWait(
     udid: string,
     commandUUID: string,
+    requestType: MdmRequestType,
     plistXml: string
   ): Promise<MdmCommandResult> {
-    const waitPromise = new Promise<MdmCommandResult>((resolve, reject) => {
-      const timeout = setTimeout(() => {
-        this.pending.delete(commandUUID);
-        reject(
-          new MicroMdmError(
-            `Timeout chờ Acknowledge cho raw command (commandUUID=${commandUUID}). ` +
-              `Thiết bị có thể đang offline.`
-          )
-        );
-      }, this.options.commandResultTimeoutMs);
+    const waitPromise = this.createPendingPromise(commandUUID, requestType);
+    this.trackRequestType(commandUUID, requestType);
 
-      // requestType không quan trọng lắm ở raw command (chỉ dùng để log lại) -
-      // để "RawCommand" làm placeholder chung.
-      this.pending.set(commandUUID, { resolve, reject, requestType: "InstallProfile", timeout });
-    });
-
-    const res = await fetch(`${this.options.baseUrl}/v1/commands/${udid}`, {
-      method: "POST",
-      headers: { ...this.authHeaders(), "Content-Type": "application/xml" },
-      body: plistXml,
-    });
+    let res;
+    try {
+      res = await fetch(`${this.options.baseUrl}/v1/commands/${udid}`, {
+        method: "POST",
+        headers: { ...this.authHeaders(), "Content-Type": "application/xml" },
+        body: plistXml,
+      });
+    } catch (err) {
+      this.cancelPending(commandUUID);
+      throw err;
+    }
 
     if (!res.ok) {
       const text = await res.text();
-      this.pending.delete(commandUUID);
+      this.cancelPending(commandUUID);
       throw new MicroMdmError(`MicroMDM trả lỗi khi queue raw command`, res.status, text);
     }
 
@@ -203,20 +222,28 @@ export class MicroMdmClient {
   async sendRawCommand(
     udid: string,
     requestType: MdmRequestType,
+    commandUUID: string,
     plistXml: string
   ): Promise<MdmCommandQueuedResult> {
-    const commandUUID = randomUUID();
-    const res = await fetch(`${this.options.baseUrl}/v1/commands/${udid}`, {
-      method: "POST",
-      headers: {
-        ...this.authHeaders(),
-        "Content-Type": "application/xml",
-      },
-      body: plistXml,
-    });
+    this.trackRequestType(commandUUID, requestType);
+    let res;
+    try {
+      res = await fetch(`${this.options.baseUrl}/v1/commands/${udid}`, {
+        method: "POST",
+        headers: {
+          ...this.authHeaders(),
+          "Content-Type": "application/xml",
+        },
+        body: plistXml,
+      });
+    } catch (err) {
+      this.requestTypes.delete(commandUUID);
+      throw err;
+    }
 
     if (!res.ok) {
       const text = await res.text();
+      this.requestTypes.delete(commandUUID);
       throw new MicroMdmError(`MicroMDM trả lỗi khi queue raw command`, res.status, text);
     }
 
@@ -240,6 +267,45 @@ export class MicroMdmClient {
       request_type: "RemoveProfile",
       Identifier: profileIdentifier,
     });
+  }
+
+  private createPendingPromise(
+    commandUUID: string,
+    requestType: MdmRequestType
+  ): Promise<MdmCommandResult> {
+    const promise = new Promise<MdmCommandResult>((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        this.pending.delete(commandUUID);
+        this.requestTypes.delete(commandUUID);
+        reject(
+          new MicroMdmError(
+            `Timeout chờ Acknowledge cho command ${requestType} ` +
+              `(commandUUID=${commandUUID}). Thiết bị có thể đang offline.`
+          )
+        );
+      }, this.options.commandResultTimeoutMs);
+
+      this.pending.set(commandUUID, { resolve, reject, requestType, timeout });
+    });
+    // Tránh unhandled rejection nếu webhook Error đến ngay trong lúc POST/push còn đang await.
+    void promise.catch(() => undefined);
+    return promise;
+  }
+
+  private cancelPending(commandUUID: string): void {
+    const pending = this.pending.get(commandUUID);
+    if (pending) clearTimeout(pending.timeout);
+    this.pending.delete(commandUUID);
+    this.requestTypes.delete(commandUUID);
+  }
+
+  private trackRequestType(commandUUID: string, requestType: MdmRequestType): void {
+    this.requestTypes.set(commandUUID, requestType);
+    // Fire-and-forget command có thể không bao giờ ACK; không giữ mapping vô hạn.
+    const cleanup = setTimeout(() => {
+      if (!this.pending.has(commandUUID)) this.requestTypes.delete(commandUUID);
+    }, 24 * 60 * 60 * 1000);
+    cleanup.unref?.();
   }
 
   private async sendPush(udid: string): Promise<void> {

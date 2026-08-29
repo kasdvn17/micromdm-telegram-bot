@@ -279,7 +279,12 @@ export class DeviceCommands {
 \t<string>${commandUUID}</string>
 </dict>
 </plist>`;
-    return this.client.sendRawCommand(this.deviceUUID, "InstallApplication", plistXml);
+    return this.client.sendRawCommand(
+      this.deviceUUID,
+      "InstallApplication",
+      commandUUID,
+      plistXml
+    );
   }
 
   /**
@@ -311,7 +316,12 @@ export class DeviceCommands {
 \t<string>${commandUUID}</string>
 </dict>
 </plist>`;
-    return this.client.sendRawCommand(this.deviceUUID, "InstallApplication", plistXml);
+    return this.client.sendRawCommand(
+      this.deviceUUID,
+      "InstallApplication",
+      commandUUID,
+      plistXml
+    );
   }
 
   /**
@@ -343,6 +353,7 @@ export class DeviceCommands {
     const result = await this.client.sendRawCommandAndWait(
       this.deviceUUID,
       commandUUID,
+      "InstalledApplicationList",
       plistXml
     );
     const list = (result.raw?.["InstalledApplicationList"] as Array<Record<string, unknown>>) ?? [];
@@ -375,7 +386,12 @@ export class DeviceCommands {
 \t<string>${commandUUID}</string>
 </dict>
 </plist>`;
-    return this.client.sendRawCommand(this.deviceUUID, "RemoveApplication", plistXml);
+    return this.client.sendRawCommand(
+      this.deviceUUID,
+      "RemoveApplication",
+      commandUUID,
+      plistXml
+    );
   }
 
   /**
@@ -416,7 +432,7 @@ export class DeviceCommands {
 \t<string>${commandUUID}</string>
 </dict>
 </plist>`;
-    return this.client.sendRawCommand(this.deviceUUID, "Settings", plistXml);
+    return this.client.sendRawCommand(this.deviceUUID, "Settings", commandUUID, plistXml);
   }
 
   async getSecurityInfo(): Promise<Record<string, unknown>> {
@@ -453,7 +469,7 @@ export class DeviceCommands {
 \t<string>${commandUUID}</string>
 </dict>
 </plist>`;
-    return this.client.sendRawCommand(this.deviceUUID, "Settings", plistXml);
+    return this.client.sendRawCommand(this.deviceUUID, "Settings", commandUUID, plistXml);
   }
 
   /**

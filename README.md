@@ -201,11 +201,11 @@ DISCORD_TARGET_USER_ID=123456789012345678
 ALARM_TIMEZONE=Asia/Ho_Chi_Minh
 ```
 
-Các biến bắt buộc để bot khởi động gồm `DEVICE_UUID`, `TELEGRAM_BOT_TOKEN`, `AUTHORIZED_TELEGRAM_USERNAME`, `EMERGENCY_PASSWORD`, `MICROMDM_URL` và `MICROMDM_API_KEY`.
+Các biến bắt buộc để bot khởi động gồm `DEVICE_UUID`, `TELEGRAM_BOT_TOKEN`, `AUTHORIZED_TELEGRAM_USERNAME`, `EMERGENCY_PASSWORD`, `MICROMDM_URL`, `MICROMDM_API_KEY`, `DISCORD_SELF_TOKEN` và `DISCORD_TARGET_USER_ID`. `AUTHORIZED_TELEGRAM_CHAT_ID` không bắt buộc; nếu bỏ trống, bot bind chat riêng sau tin nhắn đầu tiên từ username được uỷ quyền.
 
 ### MicroMDM webhook
 
-Trỏ command webhook của MicroMDM về bot:
+Trỏ command webhook của MicroMDM về đúng `WEBHOOK_PATH` của bot:
 
 ```bash
 ./micromdm serve -command-webhook-url="http://<IP_CUA_BOT>:6364/webhook/micromdm" ...

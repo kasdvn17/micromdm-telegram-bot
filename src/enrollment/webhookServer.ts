@@ -10,6 +10,7 @@ import { readJsonState, writeJsonState } from "../utils/jsonStore";
 
 export interface WebhookServerOptions {
   port: number;
+  path: string;
   deviceUUID: string;
   /** File lưu danh sách UDID đã từng thấy, dùng để tự phát hiện enrollment MỚI
    *  (MicroMDM KHÔNG có topic "mdm.Enrollment" riêng - đây là cách chính thức
@@ -23,6 +24,8 @@ export interface WebhookServerOptions {
 interface SeenDevicesState {
   udids: string[];
 }
+
+const MAX_WEBHOOK_BODY_BYTES = 1024 * 1024;
 
 /**
  * HTTP server nội bộ nhận webhook từ MicroMDM (cấu hình MicroMDM chạy với
@@ -63,17 +66,32 @@ export function startWebhookServer(
   defaultProfileService: DefaultProfileServiceApi
 ): http.Server {
   const server = http.createServer((req, res) => {
+    const requestPath = new URL(req.url ?? "/", "http://localhost").pathname;
+    if (requestPath !== options.path) {
+      res.writeHead(404).end();
+      return;
+    }
     if (req.method !== "POST") {
-      res.writeHead(405).end();
+      res.writeHead(405, { Allow: "POST" }).end();
       return;
     }
 
     let body = "";
+    let bodyBytes = 0;
+    let rejected = false;
     req.on("data", (chunk) => {
+      if (rejected) return;
+      bodyBytes += Buffer.byteLength(chunk);
+      if (bodyBytes > MAX_WEBHOOK_BODY_BYTES) {
+        rejected = true;
+        res.writeHead(413).end();
+        return;
+      }
       body += chunk;
     });
 
     req.on("end", () => {
+      if (rejected) return;
       res.writeHead(200).end();
       void handleWebhookBody(body, options, client, bus, activationLockService, defaultProfileService);
     });
@@ -82,6 +100,7 @@ export function startWebhookServer(
   server.listen(options.port, () => {
     getLogger().info("[webhookServer] Đang lắng nghe webhook MicroMDM", {
       port: options.port,
+      path: options.path,
     });
   });
 
@@ -175,12 +194,17 @@ async function handleWebhookBody(
 
     case "mdm.Connect": {
       const ack = event.acknowledge_event;
-      if (!ack) break;
-      client.resolveAcknowledge(ack.command_uuid, ack.status, ack.raw_payload);
+      if (!ack || ack.udid !== options.deviceUUID) break;
+      const requestType = client.resolveAcknowledge(
+        ack.command_uuid,
+        ack.status,
+        ack.raw_payload
+      );
+      const command = requestType ?? "UnknownCommand";
       if (ack.status === "Acknowledged") {
         bus.publish({
           type: "mdm.command.succeeded",
-          command: ack.command_uuid,
+          command,
           commandUUID: ack.command_uuid,
         });
       } else if (ack.status === "Error") {
@@ -193,7 +217,7 @@ async function handleWebhookBody(
         });
         bus.publish({
           type: "mdm.command.failed",
-          command: ack.command_uuid,
+          command,
           commandUUID: ack.command_uuid,
           error: `MicroMDM báo lỗi khi thực thi command trên thiết bị: ${JSON.stringify(parsed)}`,
         });
