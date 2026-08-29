@@ -48,13 +48,6 @@ import {
 } from "./commands/emergency/app.command";
 import { createInstallProfileCommand, createListProfilesCommand, createRemoveProfileCommand } from "./commands/emergency/profile.command";
 import { createHelpCommand } from "./commands/normal/help.command";
-import { createAlarmService } from "./services/alarmService";
-import { createDiscordCallService } from "./services/discordCallService";
-import {
-  createAlarmStopCommand,
-  createAlarmStatusCommand,
-  createCallCommand,
-} from "./commands/normal/alarm.command";
 
 async function main(): Promise<void> {
   // Bắt toàn cục unhandledRejection/uncaughtException - CHỈ LOG, không thoát
@@ -205,18 +198,6 @@ async function main(): Promise<void> {
   );
   const appManagementService = createAppManagementService(deviceCommands, bus);
 
-  const discordCallService = createDiscordCallService(
-    config.secrets.discordSelfToken,
-    config.secrets.discordTargetUserId
-  );
-  await discordCallService.start();
-
-  const alarmService = createAlarmService(
-    config.constants.alarmStateFilePath,
-    discordCallService,
-    config.constants.alarmTimeZone
-  );
-
   // 6. Event subscribers
   attachHistoryLogger(bus, config.constants.historyFilePath);
   attachNotifyBridge(bus, notificationService);
@@ -261,9 +242,6 @@ async function main(): Promise<void> {
     createRemoveProfileCommand(deviceCommands),
     createInstallProfileCommand(deviceCommands, config.constants.dataDir),
     createHelpCommand(),
-    createAlarmStopCommand(alarmService),
-    createAlarmStatusCommand(alarmService),
-    createCallCommand(alarmService),
   ];
 
   const router = createRouter(
@@ -292,7 +270,6 @@ async function main(): Promise<void> {
   focusScheduler.start();
   deviceInfoPoller.start(config.constants.deviceInfoPollIntervalMs);
   markLostService.resumeIfActive();
-  alarmService.start();
 
   logger.info("[main] Bot đã khởi động thành công.");
 }

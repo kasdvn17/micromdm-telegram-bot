@@ -28,6 +28,16 @@ export class MicroMdmError extends AppError {
   }
 }
 
+export class CodeforcesApiError extends AppError {
+  constructor(
+    message: string,
+    public readonly statusCode?: number,
+    public readonly responseBody?: string
+  ) {
+    super(message, "codeforces");
+  }
+}
+
 export class ValidationError extends AppError {
   constructor(message: string) {
     super(message, "validation");

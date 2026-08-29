@@ -74,13 +74,6 @@ export interface AppConstants {
    * nhưng chưa xác nhận (device có thể đang offline).
    */
   commandResultTimeoutMs: number;
-
-  /** Đường dẫn state JSON của báo thức */
-  alarmStateFilePath: string;
-
-  /** Múi giờ dùng cho báo thức */
-  alarmTimeZone: string;
-
 }
 
 const DEFAULT_DEVICE_INFO_POLL_INTERVAL_MS = 60 * 60 * 1000; // 1 tiếng
@@ -142,8 +135,5 @@ export function loadConstants(env: NodeJS.ProcessEnv = process.env): AppConstant
     webhookPort: parseIntEnv(env.WEBHOOK_PORT, 6364),
     webhookPath,
     commandResultTimeoutMs: parseIntEnv(env.COMMAND_RESULT_TIMEOUT_MS, 30_000),
-    alarmStateFilePath:
-      env.ALARM_STATE_FILE_PATH?.trim() || path.join(DATA_DIR, "alarm-state.json"),
-    alarmTimeZone: env.ALARM_TIMEZONE?.trim() || "Asia/Ho_Chi_Minh",
   };
 }

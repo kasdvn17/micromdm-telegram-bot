@@ -12,7 +12,7 @@ Telegram bot cá nhân để quản lý một thiết bị iOS Supervised thông
 - Blacklist app.
 - Theo dõi webhook MicroMDM và lưu lịch sử/log.
 - Tự động xử lý enrollment mới và profile mặc định.
-- Báo thức bằng Discord Voice Call thông qua tài khoản Discord selfbot.
+- Utility Codeforces để lấy toàn bộ submission public và kiểm tra user đã Accepted một bài public hay chưa.
 
 ## Quyền truy cập
 
@@ -20,26 +20,11 @@ Bot có 3 mức xác thực:
 
 | Mức | Xác thực | Lệnh |
 |---|---|---|
-| Normal | Telegram username trong `AUTHORIZED_TELEGRAM_USERNAME` | Các lệnh thông thường, Focus, Blacklist, Alarm... |
+| Normal | Telegram username trong `AUTHORIZED_TELEGRAM_USERNAME` | Các lệnh thông thường, Focus, Blacklist... |
 | Emergency | `EMERGENCY_PASSWORD` | Các lệnh điều khiển thiết bị |
 | Two-Factor | Username chính chủ + `EMERGENCY_PASSWORD` | `/api` |
 
 Emergency không yêu cầu đúng username; vì vậy `EMERGENCY_PASSWORD` phải được giữ bí mật.
-
-## Báo thức Discord
-
-Báo thức sử dụng múi giờ `ALARM_TIMEZONE` (mặc định `Asia/Ho_Chi_Minh`) và thực hiện cuộc gọi Discord tới `DISCORD_TARGET_USER_ID`.
-
-- **05:00 — lần 1:** gọi lặp lại khoảng mỗi 35 giây cho tới khi dùng `/alarm_stop`.
-- **05:10 — lần 2:** nếu chưa dừng, chuyển sang lần 2 và tiếp tục gọi cho tới `/alarm_stop`.
-- **05:30 — lần 3:** nếu vẫn chưa dừng, thực hiện cuộc gọi cuối cùng rồi kết thúc báo thức.
-- `/alarm_stop`: dừng toàn bộ các lần còn lại trong ngày và không gửi thêm yêu cầu gọi.
-- `/alarm_status`: xem trạng thái hiện tại.
-- `/call test`: thực hiện ngay một cuộc gọi Discord để kiểm tra cấu hình.
-
-Mỗi lần gọi dùng `DMChannel.sync()` rồi `DMChannel.ring()` của `discord.js-selfbot-v13@3.7.1`. Ở bản 3.7.1, `DMChannel.call()` không tồn tại ở runtime; `sync()` được dùng để đồng bộ trạng thái DM voice trước khi gửi ring. Với lần 1 và lần 2, scheduler gửi lại yêu cầu ring định kỳ cho tới `/alarm_stop`; lần 3 chỉ gửi một lần. Không có timer tự ngắt ở phía bot.
-
-> **Lưu ý:** `discord.js-selfbot-v13` là thư viện không chính thức cho user account và dự án gốc đã bị archive/deprecated. Việc sử dụng selfbot có thể vi phạm Discord Terms of Service và có rủi ro khóa tài khoản.
 
 ## Danh sách lệnh
 
@@ -72,9 +57,6 @@ Mỗi lần gọi dùng `DMChannel.sync()` rồi `DMChannel.ring()` của `disco
 /auth test <password>
 /help
 
-/call test
-/alarm_stop
-/alarm_status
 ```
 
 ### Emergency
@@ -195,13 +177,9 @@ WEBHOOK_PORT=6364
 WEBHOOK_PATH=/webhook/micromdm
 
 DEVICE_UUID=udid_thiet_bi_ios
-
-DISCORD_SELF_TOKEN=token_tai_khoan_Discord
-DISCORD_TARGET_USER_ID=123456789012345678
-ALARM_TIMEZONE=Asia/Ho_Chi_Minh
 ```
 
-Các biến bắt buộc để bot khởi động gồm `DEVICE_UUID`, `TELEGRAM_BOT_TOKEN`, `AUTHORIZED_TELEGRAM_USERNAME`, `EMERGENCY_PASSWORD`, `MICROMDM_URL`, `MICROMDM_API_KEY`, `DISCORD_SELF_TOKEN` và `DISCORD_TARGET_USER_ID`. `AUTHORIZED_TELEGRAM_CHAT_ID` không bắt buộc; nếu bỏ trống, bot bind chat riêng sau tin nhắn đầu tiên từ username được uỷ quyền.
+Các biến bắt buộc để bot khởi động gồm `DEVICE_UUID`, `TELEGRAM_BOT_TOKEN`, `AUTHORIZED_TELEGRAM_USERNAME`, `EMERGENCY_PASSWORD`, `MICROMDM_URL` và `MICROMDM_API_KEY`. `AUTHORIZED_TELEGRAM_CHAT_ID` không bắt buộc; nếu bỏ trống, bot bind chat riêng sau tin nhắn đầu tiên từ username được uỷ quyền.
 
 ### MicroMDM webhook
 
@@ -220,6 +198,22 @@ bun start
 bun run typecheck
 ```
 
+## Codeforces utility
+
+Các hàm trong `src/utils/codeforces.ts` chỉ dùng API anonymous nên chỉ đọc dữ liệu public. Client tự phân trang và giữ khoảng cách tối thiểu 2 giây giữa các request theo [giới hạn API chính thức của Codeforces](https://codeforces.com/apiHelp).
+
+```ts
+import {
+  fetchAllUserSubmissions,
+  hasUserSolvedPublicProblem,
+} from "./utils/codeforces";
+
+const submissions = await fetchAllUserSubmissions("tourist");
+const solved = await hasUserSolvedPublicProblem("tourist", 4, "A");
+```
+
+`hasUserSolvedPublicProblem()` chỉ trả `true` khi bài vẫn có trong problemset public và user có submission với `verdict === "OK"` cho đúng `contestId` và `index`.
+
 ## Dữ liệu
 
 Bot lưu trạng thái bằng JSON trong `data/`, gồm:
@@ -229,7 +223,6 @@ Bot lưu trạng thái bằng JSON trong `data/`, gồm:
 - `sensitive_apps.json` — danh sách app Safe Mode.
 - `schedule.json` — Focus schedule.
 - `history.json` — lịch sử sự kiện.
-- `alarm-state.json` — trạng thái báo thức.
 - `mark-lost-state.json` — trạng thái Mark Lost.
 - `logs/` — log theo ngày.
 
