@@ -16,6 +16,9 @@ export interface AppConstants {
   /** Chu kỳ poll battery/location/deviceinfo để cache (ms) */
   deviceInfoPollIntervalMs: number;
 
+  /** Chu kỳ gửi một câu danh ngôn qua Telegram (mặc định 1 giờ). */
+  quoteIntervalMs: number;
+
   /**
    * Chu kỳ poll location + heartbeat khi /mark lost đang bật (ms).
    * Yêu cầu: phải nhỏ hơn 2 phút (120_000ms).
@@ -84,6 +87,7 @@ export interface AppConstants {
 
 const DEFAULT_DEVICE_INFO_POLL_INTERVAL_MS = 60 * 60 * 1000; // 1 tiếng
 const DEFAULT_MARK_LOST_POLL_INTERVAL_MS = 5 * 60 * 1000; // 5 phút
+const DEFAULT_QUOTE_INTERVAL_MS = 60 * 60 * 1000; // 1 tiếng
 
 const DATA_DIR = path.resolve(process.cwd(), "data");
 
@@ -117,6 +121,7 @@ export function loadConstants(env: NodeJS.ProcessEnv = process.env): AppConstant
       env.DEVICE_INFO_POLL_INTERVAL_MS,
       DEFAULT_DEVICE_INFO_POLL_INTERVAL_MS
     ),
+    quoteIntervalMs: parseIntEnv(env.QUOTE_INTERVAL_MS, DEFAULT_QUOTE_INTERVAL_MS),
     markLostPollIntervalMs,
     logDir: env.LOG_DIR?.trim() || path.join(DATA_DIR, "logs"),
     historyFilePath:

@@ -20,6 +20,7 @@ import { createCodeforcesTaskService } from "./services/codeforcesTaskService";
 import { FocusScheduler } from "./scheduler/focusScheduler";
 import { createMarkLostPoller } from "./scheduler/markLostPoller";
 import { createDeviceInfoPoller } from "./scheduler/deviceInfoPoller";
+import { createQuoteScheduler } from "./scheduler/quoteScheduler";
 import { createBot } from "./telegram/bot";
 import { createRouter } from "./telegram/router";
 import { startWebhookServer } from "./enrollment/webhookServer";
@@ -108,6 +109,7 @@ async function main(): Promise<void> {
   // bind từ tin nhắn đầu tiên của Authorized Username.
   let primaryChatId: number | null = config.secrets.authorizedTelegramChatId ?? null;
   const notificationService = createNotificationService(bot, primaryChatId ?? undefined);
+  const quoteScheduler = createQuoteScheduler(notificationService);
 
   // 4. Auth
   const emergencyAuthService = createEmergencyAuthService(
@@ -277,6 +279,7 @@ async function main(): Promise<void> {
   // 9. Start pollers/scheduler nền
   focusScheduler.start();
   deviceInfoPoller.start(config.constants.deviceInfoPollIntervalMs);
+  quoteScheduler.start(config.constants.quoteIntervalMs);
   markLostService.resumeIfActive();
 
   logger.info("[main] Bot đã khởi động thành công.");

@@ -11,6 +11,7 @@ Telegram bot cá nhân để quản lý một thiết bị iOS Supervised thông
 - Safe Mode với danh sách app riêng.
 - Blacklist app.
 - Theo dõi webhook MicroMDM và lưu lịch sử/log.
+- Tự động gửi một câu danh ngôn của người nổi tiếng mỗi giờ qua Telegram.
 - Tự động xử lý enrollment mới và profile mặc định.
 - Codeforces task gate: yêu cầu AC các bài đã thêm trước khi được phép Focus break.
 
@@ -219,6 +220,10 @@ const solved = await hasUserSolvedPublicProblem("tourist", 4, "A");
 `hasUserSolvedPublicProblem()` chỉ trả `true` khi bài vẫn có trong problemset public và user có submission với `verdict === "OK"` cho đúng `contestId` và `index`.
 
 Đặt `CODEFORCES_HANDLE` trong `.env`, sau đó dùng `/task add 4A` (cũng hỗ trợ URL hoặc đúng tên bài). `/refresh` lấy submission mới nhất, đánh dấu các bài đã AC và `/focus break` sẽ bị từ chối khi còn ít nhất một task active.
+
+## Danh ngôn mỗi giờ
+
+Bot gửi một câu trong danh sách cục bộ sau mỗi 60 phút kể từ lúc khởi động. Không có tin nhắn gửi ngay lúc boot và mỗi interval chỉ gửi một câu. Có thể đổi chu kỳ bằng `QUOTE_INTERVAL_MS`; `/notify off` cũng tạm dừng các tin nhắn danh ngôn.
 
 ## Dữ liệu
 
