@@ -26,6 +26,7 @@ export type AppEvent =
   | { type: "focus.disabled" }
   | { type: "focus.sleep.enabled" }
   | { type: "focus.sleep.disabled" }
+  | { type: "focus.sleep.overridden" }
   | {
       type: "focus.break.started";
       durationMs: number;

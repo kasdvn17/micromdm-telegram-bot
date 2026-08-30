@@ -5,7 +5,7 @@ import {
 } from "../types/codeforces.types";
 import {
   CodeforcesClient,
-  hasAcceptedSubmissionForProblem,
+  findFirstAcceptedSubmissionForProblem,
 } from "../utils/codeforces";
 import { ValidationError } from "../utils/errors";
 import { readJsonState, writeJsonState } from "../utils/jsonStore";
@@ -229,22 +229,20 @@ export function createCodeforcesTaskService(
       );
       const newlySolved: CodeforcesTask[] = [];
       const unavailablePublicProblems: CodeforcesTask[] = [];
-      const refreshedAt = new Date().toISOString();
 
       for (const task of activeTasks) {
         if (!publicKeys.has(problemKey(task.contestId, task.index))) {
           unavailablePublicProblems.push(task);
           continue;
         }
-        if (
-          hasAcceptedSubmissionForProblem(
-            submissions as readonly CodeforcesSubmission[],
-            task.contestId,
-            task.index
-          )
-        ) {
+        const firstAccepted = findFirstAcceptedSubmissionForProblem(
+          submissions as readonly CodeforcesSubmission[],
+          task.contestId,
+          task.index
+        );
+        if (firstAccepted) {
           task.status = "solved";
-          task.solvedAt = refreshedAt;
+          task.solvedAt = new Date(firstAccepted.creationTimeSeconds * 1000).toISOString();
           newlySolved.push(task);
         }
       }

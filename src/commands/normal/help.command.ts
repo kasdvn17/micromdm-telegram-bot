@@ -14,6 +14,7 @@ Quy ước: lệnh Emergency/Two-Factor đặt password ngay sau tên lệnh:
 /focus on|off|status|remaining|extend <d>|cancel
 /focus <duration> — bật Focus theo thời lượng, vd /focus 90m
 /focus break [d] — tạm ngưng Focus trong schedule
+/focus off — trong Sleep Mode cần đạt 3 bài AC sau 22:00 và /refresh
 /focus schedule list
 /focus schedule add <start> <end> [days]
 /focus schedule enable|disable <id>

@@ -32,6 +32,23 @@ export interface SchedulerState {
     count: number;
     totalMs: number;
   };
+  /** Tiến độ mở khóa Sleep Mode của phiên bắt đầu lúc 22:00 ngày sessionDate. */
+  sleepUnlock?: {
+    sessionDate: string;
+    acceptedTaskCount: number;
+    qualifiedAt?: string;
+    disabledAt?: string;
+  };
+}
+
+export interface SleepUnlockStatus {
+  withinTimeRange: boolean;
+  sessionDate?: string;
+  sessionStartedAt?: string;
+  acceptedTaskCount: number;
+  requiredTaskCount: number;
+  eligible: boolean;
+  disabled: boolean;
 }
 
 export interface MarkLostState {

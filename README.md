@@ -35,6 +35,7 @@ Emergency không yêu cầu đúng username; vì vậy `EMERGENCY_PASSWORD` ph�
 /focus on|off|status|remaining|extend <duration>|cancel
 /focus <duration>
 /focus break [duration]
+/focus off # trong Sleep Mode: cần 3 bài AC lần đầu sau 22:00 và /refresh
 /focus schedule list
 /focus schedule add <start> <end> [days]
 /focus schedule enable|disable <id>
@@ -145,7 +146,7 @@ Các lệnh nguy hiểm yêu cầu `CONFIRM` ở cuối:
 
 ## Sleep Mode
 
-Trong khoảng **22:00–05:00**, Focus tự động được bật. Trong thời gian này không thể tắt Focus bằng các lệnh thông thường.
+Trong khoảng **22:00–05:00**, Focus tự động được bật. Mặc định không thể tắt hoặc break; ngoại lệ là cơ chế mở khóa bằng 3 task Codeforces AC lần đầu sau khi phiên bắt đầu.
 
 ## Cài đặt
 
@@ -224,6 +225,8 @@ const difficulty = await getCodeforcesProblemRating(4, "A");
 `getCodeforcesProblemRating()` ưu tiên rating chính thức từ Codeforces. Nếu API chưa có rating, hàm dùng dataset JSON công khai của [Codeforces Problems](https://github.com/kira924age/CodeforcesProblems), cache 24 giờ và trả nguồn `kira`; nếu cả hai nguồn đều thiếu thì trả `source: "unrated"`. `/task add` và `/task list` cũng hiển thị difficulty kèm nguồn.
 
 Đặt `CODEFORCES_HANDLE` trong `.env`, sau đó dùng `/task add 4A` (cũng hỗ trợ URL hoặc đúng tên bài). `/refresh` lấy submission mới nhất, đánh dấu các bài đã AC và `/focus break` sẽ bị từ chối khi còn ít nhất một task active.
+
+Trong Sleep Mode (22:00–05:00), `/refresh` chỉ cộng những task có submission `OK` đầu tiên từ sau lúc phiên bắt đầu. Khi đạt 3 bài, `/focus off` được mở khóa để tắt Sleep Mode cho phần còn lại của đúng phiên đó. Bài đã AC trước 22:00 không được tính; quyền tự reset ở phiên Sleep Mode kế tiếp.
 
 ## Danh ngôn mỗi giờ
 

@@ -1,6 +1,6 @@
 import { randomUUID } from "crypto";
 import { readJsonState, writeJsonState } from "./store";
-import { FocusSchedule, SchedulerState } from "../types/scheduler.types";
+import { FocusSchedule, SchedulerState, SleepUnlockStatus } from "../types/scheduler.types";
 import { getLogger } from "../utils/logger";
 
 type ExpireCallback = () => Promise<void>;
@@ -23,6 +23,19 @@ function hhmmOf(now: Date): string {
   return `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
 }
 
+function sleepSessionDateStr(now: Date): string {
+  if (hhmmOf(now) >= FocusScheduler.SLEEP_START) return todayDateStr(now);
+  const previousDay = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
+  return todayDateStr(previousDay);
+}
+
+function sleepSessionStart(now: Date): Date {
+  const sessionDate = sleepSessionDateStr(now);
+  const [year, month, day] = sessionDate.split("-").map(Number);
+  const [hour, minute] = FocusScheduler.SLEEP_START.split(":").map(Number);
+  return new Date(year, month - 1, day, hour, minute, 0, 0);
+}
+
 /**
  * Quản lý focus schedule (duration-based + recurring), lưu JSON, dùng
  * setInterval "tick" mỗi phút để kiểm tra thay vì 1 setTimeout riêng cho
@@ -42,12 +55,13 @@ export class FocusScheduler {
   /**
    * Sleep Mode: khung giờ CỐ ĐỊNH, hardcode (KHÔNG cấu hình qua lệnh/JSON
    * như recurring schedule thường), qua đêm (22:00 -> 05:00 sáng hôm sau).
-   * KHÔNG THỂ TẮT: không có /sleep off, không bị ảnh hưởng bởi /focus off,
-   * /focus cancel, /focus break, /focus schedule skip - toàn bộ các lệnh
-   * đó đều bị chặn khi đang trong khung giờ này (xem focusService.ts).
+   * Mặc định không thể tắt. Ngoại lệ duy nhất: user AC lần đầu ít nhất 3 task
+   * sau khi phiên bắt đầu và chạy /refresh; khi đó /focus off có thể tắt phần
+   * còn lại của đúng phiên Sleep Mode hiện tại.
    */
   static readonly SLEEP_START = "22:00";
   static readonly SLEEP_END = "05:00";
+  static readonly SLEEP_UNLOCK_REQUIRED_AC = 3;
 
   private tickHandle: NodeJS.Timeout | null = null;
   private readonly firedRecurringToday = new Set<string>(); // key: `${scheduleId}:${dateStr}:${start|end}`
@@ -192,14 +206,87 @@ export class FocusScheduler {
   /**
    * true nếu hiện tại đang trong khung giờ Sleep Mode CỐ ĐỊNH (22:00 -> 05:00
    * sáng hôm sau, qua đêm). Khác isWithinScheduleWindowToday() - không đọc
-   * từ `schedules` trong state, hardcode SLEEP_START/SLEEP_END, không thể
-   * skip/disable qua bất kỳ lệnh nào.
+   * từ `schedules` trong state và hardcode SLEEP_START/SLEEP_END.
    */
-  isWithinSleepWindow(now: Date = new Date()): boolean {
+  isWithinSleepTimeRange(now: Date = new Date()): boolean {
     const hhmm = hhmmOf(now);
     // Qua đêm: active nếu >= 22:00 (tối nay) HOẶC < 05:00 (sáng nay, phần đuôi
     // của khung bắt đầu từ tối hôm trước).
     return hhmm >= FocusScheduler.SLEEP_START || hhmm < FocusScheduler.SLEEP_END;
+  }
+
+  /** Sleep Mode đang có hiệu lực, đã tính trường hợp được mở khóa và tắt cho phiên này. */
+  isWithinSleepWindow(now: Date = new Date()): boolean {
+    return this.isWithinSleepTimeRange(now) && !this.getSleepUnlockStatus(now).disabled;
+  }
+
+  getSleepUnlockStatus(now: Date = new Date()): SleepUnlockStatus {
+    if (!this.isWithinSleepTimeRange(now)) {
+      return {
+        withinTimeRange: false,
+        acceptedTaskCount: 0,
+        requiredTaskCount: FocusScheduler.SLEEP_UNLOCK_REQUIRED_AC,
+        eligible: false,
+        disabled: false,
+      };
+    }
+    const sessionDate = sleepSessionDateStr(now);
+    const state = this.readState();
+    const current = state.sleepUnlock?.sessionDate === sessionDate ? state.sleepUnlock : undefined;
+    const acceptedTaskCount = current?.acceptedTaskCount ?? 0;
+    return {
+      withinTimeRange: true,
+      sessionDate,
+      sessionStartedAt: sleepSessionStart(now).toISOString(),
+      acceptedTaskCount,
+      requiredTaskCount: FocusScheduler.SLEEP_UNLOCK_REQUIRED_AC,
+      eligible: acceptedTaskCount >= FocusScheduler.SLEEP_UNLOCK_REQUIRED_AC,
+      disabled: !!current?.disabledAt,
+    };
+  }
+
+  /** Ghi nhận các task vừa được /refresh xác nhận, chỉ tính lần AC đầu tiên sau 22:00. */
+  recordSleepAcceptedTasks(acceptedAtValues: readonly string[], now: Date = new Date()): SleepUnlockStatus {
+    if (!this.isWithinSleepTimeRange(now) || acceptedAtValues.length === 0) {
+      return this.getSleepUnlockStatus(now);
+    }
+    const state = this.ensureSleepSession(now);
+    const sessionStartMs = sleepSessionStart(now).getTime();
+    const nowMs = now.getTime();
+    const qualifyingCount = acceptedAtValues.filter((value) => {
+      const acceptedMs = new Date(value).getTime();
+      return Number.isFinite(acceptedMs) && acceptedMs >= sessionStartMs && acceptedMs <= nowMs;
+    }).length;
+    if (qualifyingCount > 0 && !state.sleepUnlock?.disabledAt) {
+      state.sleepUnlock!.acceptedTaskCount = Math.min(
+        FocusScheduler.SLEEP_UNLOCK_REQUIRED_AC,
+        state.sleepUnlock!.acceptedTaskCount + qualifyingCount
+      );
+      if (
+        state.sleepUnlock!.acceptedTaskCount >= FocusScheduler.SLEEP_UNLOCK_REQUIRED_AC &&
+        !state.sleepUnlock!.qualifiedAt
+      ) {
+        state.sleepUnlock!.qualifiedAt = now.toISOString();
+      }
+      this.writeState(state);
+    }
+    return this.getSleepUnlockStatus(now);
+  }
+
+  disableSleepForCurrentSession(now: Date = new Date()): boolean {
+    if (!this.isWithinSleepTimeRange(now)) return false;
+    const state = this.ensureSleepSession(now);
+    if (
+      !state.sleepUnlock ||
+      state.sleepUnlock.acceptedTaskCount < FocusScheduler.SLEEP_UNLOCK_REQUIRED_AC
+    ) {
+      return false;
+    }
+    if (!state.sleepUnlock.disabledAt) {
+      state.sleepUnlock.disabledAt = now.toISOString();
+      this.writeState(state);
+    }
+    return true;
   }
 
   isOnBreak(now: Date = new Date()): boolean {
@@ -364,7 +451,7 @@ export class FocusScheduler {
       }
     }
 
-    // 4. Xử lý Sleep Mode (cố định, KHÔNG đọc từ `schedules`, không thể skip/tắt).
+    // 4. Xử lý Sleep Mode cố định; mỗi phiên reset tiến độ AC/override riêng.
     // Dedup key theo dateStr của NGÀY XẢY RA sự kiện đó (start lúc 22:00 của
     // ngày D, end lúc 05:00 của ngày D+1) - tự nhiên khác nhau vì khác ngày,
     // không cần logic đặc biệt cho qua đêm ở đây.
@@ -373,6 +460,7 @@ export class FocusScheduler {
 
     if (hhmm === FocusScheduler.SLEEP_START && !this.firedSleepToday.has(sleepStartKey)) {
       this.firedSleepToday.add(sleepStartKey);
+      this.ensureSleepSession(now);
       try {
         await this.onSleepTrigger("start");
       } catch (err) {
@@ -400,6 +488,16 @@ export class FocusScheduler {
 
   private writeState(state: SchedulerState): void {
     writeJsonState(this.filePath, state);
+  }
+
+  private ensureSleepSession(now: Date): SchedulerState {
+    const state = this.readState();
+    const sessionDate = sleepSessionDateStr(now);
+    if (state.sleepUnlock?.sessionDate !== sessionDate) {
+      state.sleepUnlock = { sessionDate, acceptedTaskCount: 0 };
+      this.writeState(state);
+    }
+    return state;
   }
 
   /**
@@ -438,10 +536,13 @@ export class FocusScheduler {
       }
     }
 
-    // Sleep Mode: không có khái niệm "break", nên chỉ cần reconcile is-active,
-    // không cần check break như recurring ở trên.
+    // Khôi phục đúng phiên qua nửa đêm và tôn trọng sleep override đã persist.
+    if (this.isWithinSleepTimeRange(now)) {
+      const sessionDate = sleepSessionDateStr(now);
+      this.ensureSleepSession(now);
+      this.firedSleepToday.add(`${sessionDate}:sleepstart`);
+    }
     if (this.isWithinSleepWindow(now)) {
-      this.firedSleepToday.add(`${dateStr}:sleepstart`);
       getLogger().info("[focusScheduler] Reconcile lúc khởi động: đang trong Sleep Mode, bật lại Focus");
       try {
         await this.onSleepTrigger("start");

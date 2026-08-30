@@ -1,6 +1,7 @@
 import { CodeforcesTaskServiceApi } from "../../services/codeforcesTaskService";
 import { AuthTier, CommandContext, CommandDefinition } from "../../types/command.types";
 import { ValidationError } from "../../utils/errors";
+import { FocusServiceApi } from "../../services/focusService";
 
 function formatRating(rating?: number, source?: string): string {
   if (!rating) return "Unrated";
@@ -56,12 +57,18 @@ export function createTaskCommand(taskService: CodeforcesTaskServiceApi): Comman
   };
 }
 
-export function createRefreshCommand(taskService: CodeforcesTaskServiceApi): CommandDefinition {
+export function createRefreshCommand(
+  taskService: CodeforcesTaskServiceApi,
+  focusService: Pick<FocusServiceApi, "recordSleepAcceptedTasks">
+): CommandDefinition {
   return {
     name: "refresh",
     tier: AuthTier.Normal,
     handler: async (ctx: CommandContext): Promise<string> => {
       const result = await taskService.refresh(ctx.message.telegramId);
+      const sleepUnlock = focusService.recordSleepAcceptedTasks(
+        result.newlySolved.flatMap((task) => (task.solvedAt ? [task.solvedAt] : []))
+      );
       const active = result.tasks.filter((task) => task.status === "active");
       const lines = [
         result.newlySolved.length > 0
@@ -84,6 +91,19 @@ export function createRefreshCommand(taskService: CodeforcesTaskServiceApi): Com
             .map((task) => `${task.contestId}${task.index}`)
             .join(", ")}. Các task này vẫn active.`
         );
+      }
+      if (sleepUnlock.withinTimeRange) {
+        if (sleepUnlock.disabled) {
+          lines.push("🌙 Sleep Mode đã được tắt cho phiên hôm nay.");
+        } else if (sleepUnlock.eligible) {
+          lines.push(
+            `🌙 Sleep unlock: ${sleepUnlock.acceptedTaskCount}/${sleepUnlock.requiredTaskCount}. Đã đủ điều kiện — dùng /focus off để tắt Sleep Mode hôm nay.`
+          );
+        } else {
+          lines.push(
+            `🌙 Sleep unlock: ${sleepUnlock.acceptedTaskCount}/${sleepUnlock.requiredTaskCount} bài AC đầu tiên sau 22:00.`
+          );
+        }
       }
       return lines.join("\n");
     },

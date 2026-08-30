@@ -229,7 +229,7 @@ async function main(): Promise<void> {
   const commands: CommandDefinition[] = [
     createFocusCommand(focusService, codeforcesTaskService),
     createTaskCommand(codeforcesTaskService),
-    createRefreshCommand(codeforcesTaskService),
+    createRefreshCommand(codeforcesTaskService, focusService),
     createNotifyCommand(notificationService),
     createPingCommand(),
     createHealthCommand(),

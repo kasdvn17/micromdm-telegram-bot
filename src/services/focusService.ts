@@ -9,22 +9,28 @@ import {
 import { loadFocusBundleIds, addFocusBundleId, removeFocusBundleId, loadFocusWebsites, addFocusWebsite, removeFocusWebsite } from "../profiles/restrictedApps";
 import { ValidationError } from "../utils/errors";
 import { formatDuration } from "../utils/time";
-import { FocusSchedule } from "../types/scheduler.types";
+import { FocusSchedule, SleepUnlockStatus } from "../types/scheduler.types";
+
+export interface FocusDisableResult {
+  sleepModeDisabled: boolean;
+  focusStillActive: boolean;
+}
 
 export interface FocusStatus {
   active: boolean;
   remainingMs: number | null;
   /** true nếu hiện tại đang trong khung giờ 1 recurring schedule (bất kể break) */
   withinSchedule: boolean;
-  /** true nếu hiện tại đang trong Sleep Mode (22:00 - 05:00, cố định, không thể tắt) */
+  /** true nếu Sleep Mode đang có hiệu lực (chưa được mở khóa và tắt trong phiên này) */
   withinSleep: boolean;
   onBreak: boolean;
   breakRemainingMs: number | null;
+  sleepUnlock: SleepUnlockStatus;
 }
 
 export interface FocusServiceApi {
   enable(durationMs?: number): Promise<void>;
-  disable(): Promise<void>;
+  disable(): Promise<FocusDisableResult>;
   status(): FocusStatus;
   extend(ms: number): Promise<void>;
   cancel(): Promise<void>;
@@ -32,6 +38,7 @@ export interface FocusServiceApi {
   breakFocus(ms: number): Promise<void>;
   /** Số lần / tổng thời gian break CÒN LẠI trong hôm nay (sau giới hạn 4 lần / 1 giờ) */
   breakUsageRemainingToday(): { breaksRemaining: number; totalMsRemaining: number };
+  recordSleepAcceptedTasks(acceptedAtValues: readonly string[]): SleepUnlockStatus;
   /** /focus schedule skip [scheduleId] - bỏ qua occurrence của schedule HÔM NAY */
   skipToday(scheduleId?: string): Promise<FocusSchedule>;
   listSchedules(): FocusSchedule[];
@@ -117,9 +124,7 @@ export function createFocusService(
    * đang bị Focus schedule chặn - state trên bot và trên máy bị lệch nhau
    * cho tới tận lần recurring trigger tiếp theo (hôm sau).
    *
-   * Giờ tính CẢ Sleep Mode (22:00 - 05:00, cố định, không thể tắt) - khi Sleep
-   * Mode đang active, Focus profile LUÔN có trên máy dù không có lý do nào
-   * khác (manual/duration/recurring) yêu cầu.
+   * Giờ tính CẢ Sleep Mode khi nó chưa được override cho phiên hiện tại.
    */
   const isFocusActiveNow = (): boolean =>
     manuallyActive ||
@@ -131,7 +136,7 @@ export function createFocusService(
     if (scheduler.isWithinSleepWindow()) {
       throw new ValidationError(
         `Đang trong Sleep Mode (${FocusScheduler.SLEEP_START} - ${FocusScheduler.SLEEP_END}) nên /focus ${actionLabel} không có tác dụng. ` +
-          `Sleep Mode cố định, không thể tắt/break/skip bằng bất kỳ lệnh nào.`
+          `Có thể mở khóa /focus off bằng cách AC 3 task sau 22:00 rồi dùng /refresh.`
       );
     }
     if (scheduler.isWithinScheduleWindowToday()) {
@@ -169,11 +174,33 @@ export function createFocusService(
       bus.publish({ type: "focus.enabled", durationMs });
     },
 
-    async disable(): Promise<void> {
+    async disable(): Promise<FocusDisableResult> {
       if (safeModeService.isActive()) {
         throw new ValidationError(
           "Safe mode đang bật - dùng /safe off để tắt Focus."
         );
+      }
+      if (scheduler.isWithinSleepTimeRange()) {
+        const unlock = scheduler.getSleepUnlockStatus();
+        if (unlock.disabled) {
+          const focusStillActive =
+            scheduler.isWithinScheduleWindowToday() && !scheduler.isOnBreak();
+          return { sleepModeDisabled: true, focusStillActive };
+        }
+        if (!unlock.eligible) {
+          throw new ValidationError(
+            `Đang trong Sleep Mode. Cần AC ít nhất ${unlock.requiredTaskCount} bài sau 22:00 rồi dùng /refresh trước khi tắt ` +
+              `(hiện tại ${unlock.acceptedTaskCount}/${unlock.requiredTaskCount}).`
+          );
+        }
+        scheduler.disableSleepForCurrentSession();
+        scheduler.cancelAllDurations();
+        manuallyActive = false;
+        const focusStillActive =
+          scheduler.isWithinScheduleWindowToday() && !scheduler.isOnBreak();
+        if (!focusStillActive) await removeFocusProfile();
+        bus.publish({ type: "focus.sleep.overridden" });
+        return { sleepModeDisabled: true, focusStillActive };
       }
       requireNotWithinSchedule("off");
       // Dọn TOÀN BỘ duration-schedule (không chỉ 1 cái tìm được bởi
@@ -184,6 +211,7 @@ export function createFocusService(
       manuallyActive = false;
       await removeFocusProfile();
       bus.publish({ type: "focus.disabled" });
+      return { sleepModeDisabled: false, focusStillActive: false };
     },
 
     status(): FocusStatus {
@@ -192,6 +220,7 @@ export function createFocusService(
       const withinSleep = scheduler.isWithinSleepWindow();
       const onBreak = scheduler.isOnBreak();
       const breakRemainingMs = scheduler.breakRemainingMs();
+      const sleepUnlock = scheduler.getSleepUnlockStatus();
       if (active) {
         return {
           active: true,
@@ -200,6 +229,7 @@ export function createFocusService(
           withinSleep,
           onBreak,
           breakRemainingMs,
+          sleepUnlock,
         };
       }
       return {
@@ -209,6 +239,7 @@ export function createFocusService(
         withinSleep,
         onBreak,
         breakRemainingMs,
+        sleepUnlock,
       };
     },
 
@@ -231,7 +262,7 @@ export function createFocusService(
     async breakFocus(ms: number): Promise<void> {
       if (scheduler.isWithinSleepWindow()) {
         throw new ValidationError(
-          `Đang trong Sleep Mode (${FocusScheduler.SLEEP_START} - ${FocusScheduler.SLEEP_END}) - không thể break. Sleep Mode cố định, không thể tắt.`
+          `Đang trong Sleep Mode (${FocusScheduler.SLEEP_START} - ${FocusScheduler.SLEEP_END}) - không thể break. AC 3 task sau 22:00, /refresh rồi dùng /focus off nếu muốn tắt phiên này.`
         );
       }
       if (!scheduler.isWithinScheduleWindowToday()) {
@@ -276,6 +307,10 @@ export function createFocusService(
         breaksRemaining: Math.max(0, FocusScheduler.MAX_BREAKS_PER_DAY - usage.count),
         totalMsRemaining: Math.max(0, FocusScheduler.MAX_BREAK_TOTAL_MS_PER_DAY - usage.totalMs),
       };
+    },
+
+    recordSleepAcceptedTasks(acceptedAtValues: readonly string[]): SleepUnlockStatus {
+      return scheduler.recordSleepAcceptedTasks(acceptedAtValues);
     },
 
     async skipToday(scheduleId?: string): Promise<FocusSchedule> {

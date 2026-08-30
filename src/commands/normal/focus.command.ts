@@ -22,15 +22,29 @@ export function createFocusCommand(
           return "🎯 Focus mode đã BẬT (vô thời hạn cho tới khi /focus off).";
 
         case "off":
-          await focusService.disable();
-          return "🎯 Focus mode đã TẮT.";
+          {
+            const result = await focusService.disable();
+            if (result.sleepModeDisabled) {
+              return result.focusStillActive
+                ? "🌙 Sleep Mode đã tắt cho phiên hôm nay, nhưng Focus vẫn bật do recurring schedule đang active."
+                : "🌙 Sleep Mode đã tắt cho phần còn lại của phiên hôm nay.";
+            }
+            return "🎯 Focus mode đã TẮT.";
+          }
 
         case "status": {
           const status = focusService.status();
           const remaining = focusService.breakUsageRemainingToday();
           const breakInfo = `\nBreak còn lại hôm nay: ${remaining.breaksRemaining} lần / ${formatDuration(remaining.totalMsRemaining)}.`;
+          if (status.sleepUnlock.withinTimeRange && status.sleepUnlock.disabled) {
+            return `🌙 Sleep Mode đã được TẮT cho phiên hôm nay.${breakInfo}`;
+          }
           if (status.withinSleep) {
-            return `😴 Đang trong Sleep Mode (22:00 - 05:00) - Focus BẬT, KHÔNG thể tắt/break/skip.${breakInfo}`;
+            const unlock = status.sleepUnlock;
+            const action = unlock.eligible
+              ? "Đã đủ điều kiện, dùng /focus off để tắt cho phiên hôm nay."
+              : `AC thêm ${unlock.requiredTaskCount - unlock.acceptedTaskCount} bài sau 22:00 để mở khóa /focus off.`;
+            return `😴 Đang trong Sleep Mode (22:00 - 05:00) - tiến độ ${unlock.acceptedTaskCount}/${unlock.requiredTaskCount}. ${action}${breakInfo}`;
           }
           if (status.onBreak) {
             return `🎯 Focus đang TẠM NGƯNG (break) - còn ${formatDuration(status.breakRemainingMs ?? 0)}, sẽ tự bật lại nếu vẫn trong khung giờ schedule.${breakInfo}`;

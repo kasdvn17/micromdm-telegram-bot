@@ -72,11 +72,28 @@ export function hasAcceptedSubmissionForProblem(
   contestId: number,
   problemIndex: string
 ): boolean {
-  return submissions.some(
+  return findFirstAcceptedSubmissionForProblem(submissions, contestId, problemIndex) !== undefined;
+}
+
+/** Submission OK đầu tiên theo thời gian của đúng bài, dùng để chống tính AC cũ vào phiên hiện tại. */
+export function findFirstAcceptedSubmissionForProblem(
+  submissions: readonly CodeforcesSubmission[],
+  contestId: number,
+  problemIndex: string
+): CodeforcesSubmission | undefined {
+  return submissions
+    .filter(
     (submission) =>
       submission.verdict === "OK" &&
       isSubmissionForProblem(submission, contestId, problemIndex)
-  );
+    )
+    .reduce<CodeforcesSubmission | undefined>(
+      (earliest, submission) =>
+        !earliest || submission.creationTimeSeconds < earliest.creationTimeSeconds
+          ? submission
+          : earliest,
+      undefined
+    );
 }
 
 /** Anonymous Codeforces API client: chỉ đọc dữ liệu public, không cần API key. */
