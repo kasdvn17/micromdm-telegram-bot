@@ -50,7 +50,10 @@ export function createTaskCommand(taskService: CodeforcesTaskServiceApi): Comman
           "Task này phải được /refresh xác nhận AC trước khi có thể /focus break."
         );
       }
-      if (sub === "list") return formatTaskList(taskService, ctx.message.telegramId);
+      if (sub === "list") {
+        await taskService.refreshRatings(ctx.message.telegramId);
+        return formatTaskList(taskService, ctx.message.telegramId);
+      }
 
       throw new ValidationError("Cú pháp: /task add <problem>|list");
     },

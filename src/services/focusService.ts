@@ -291,7 +291,7 @@ export function createFocusService(
       }
 
       scheduler.startBreak(ms);
-      await removeFocusProfile();
+      if (!isFocusActiveNow()) await removeFocusProfile();
       const usageAfter = scheduler.getBreakUsageToday();
       bus.publish({
         type: "focus.break.started",
@@ -331,8 +331,10 @@ export function createFocusService(
       }
       if (wasActive) {
         scheduler.clearBreak();
-        await removeFocusProfile();
-        bus.publish({ type: "focus.disabled" });
+        if (!isFocusActiveNow()) {
+          await removeFocusProfile();
+          bus.publish({ type: "focus.disabled" });
+        }
       }
       bus.publish({ type: "focus.schedule.skipped", scheduleId: skipped.id });
       return skipped;
@@ -406,27 +408,21 @@ export function createFocusService(
       bus.publish({ type: "focus.enabled" });
     },
     async scheduleDeactivate(): Promise<void> {
-      await removeFocusProfile();
-      bus.publish({ type: "focus.disabled" });
+      // Recurring/duration source vừa hết không đồng nghĩa profile được phép
+      // gỡ: Sleep Mode hoặc một source Focus khác có thể vẫn đang giữ nó.
+      if (!isFocusActiveNow()) {
+        await removeFocusProfile();
+        bus.publish({ type: "focus.disabled" });
+      }
     },
     async sleepActivate(): Promise<void> {
       await installFocusProfile();
       bus.publish({ type: "focus.sleep.enabled" });
     },
     async sleepDeactivate(): Promise<void> {
-      await removeFocusProfile();
+      if (!isFocusActiveNow()) await removeFocusProfile();
       bus.publish({ type: "focus.sleep.disabled" });
     },
     isFocusActiveNow,
   };
-}
-
-/** Gọi bởi FocusScheduler khi 1 duration-schedule hết hạn (wiring ở main.ts) */
-export async function handleFocusExpire(
-  deviceCommands: DeviceCommands,
-  bus: EventBus
-): Promise<void> {
-  await deviceCommands.removeProfile(FOCUS_PROFILE_IDENTIFIER);
-  bus.publish({ type: "profile.removed", identifier: FOCUS_PROFILE_IDENTIFIER });
-  bus.publish({ type: "focus.disabled" });
 }

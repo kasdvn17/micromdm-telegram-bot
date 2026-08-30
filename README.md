@@ -148,6 +148,8 @@ Các lệnh nguy hiểm yêu cầu `CONFIRM` ở cuối:
 
 Trong khoảng **22:00–05:00**, Focus tự động được bật. Mặc định không thể tắt hoặc break; ngoại lệ là cơ chế mở khóa bằng 3 task Codeforces AC lần đầu sau khi phiên bắt đầu.
 
+Các nguồn Focus dùng chung một profile và được tính theo kiểu reference guard: recurring Focus kết thúc lúc 23:00 hoặc duration hết hạn sẽ không gỡ profile nếu Sleep Mode 22:00–05:00 vẫn đang giữ nó.
+
 ## Cài đặt
 
 ### Yêu cầu

@@ -7,14 +7,17 @@ import {
   CodeforcesSubmission,
 } from "../types/codeforces.types";
 import { CodeforcesApiError, ValidationError } from "./errors";
+import { getLogger } from "./logger";
 
 const DEFAULT_BASE_URL = "https://codeforces.com/api";
 const DEFAULT_PAGE_SIZE = 1000;
 const DEFAULT_MIN_REQUEST_INTERVAL_MS = 2_000;
 const DEFAULT_PUBLIC_PROBLEMS_CACHE_TTL_MS = 15 * 60 * 1000;
-const DEFAULT_EXTERNAL_RATINGS_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
-const DEFAULT_KIRA_RATINGS_URL =
-  "https://raw.githubusercontent.com/kira924age/CodeforcesProblems/main/cf-problems-crawler/contests.json";
+const DEFAULT_EXTERNAL_RATINGS_CACHE_TTL_MS = 60 * 60 * 1000;
+const DEFAULT_KIRA_RATINGS_URLS = [
+  "https://raw.githubusercontent.com/kira924age/CodeforcesProblems/main/cf-problems-crawler/contests.json",
+  "https://cdn.jsdelivr.net/gh/kira924age/CodeforcesProblems@main/cf-problems-crawler/contests.json",
+] as const;
 
 type FetchLike = (url: string, init?: RequestInit) => Promise<Response>;
 
@@ -26,6 +29,7 @@ export interface CodeforcesClientOptions {
   publicProblemsCacheTtlMs?: number;
   externalRatingsCacheTtlMs?: number;
   kiraRatingsUrl?: string;
+  kiraRatingsUrls?: string[];
   fetchImpl?: FetchLike;
 }
 
@@ -103,7 +107,7 @@ export class CodeforcesClient {
   private readonly minRequestIntervalMs: number;
   private readonly publicProblemsCacheTtlMs: number;
   private readonly externalRatingsCacheTtlMs: number;
-  private readonly kiraRatingsUrl: string;
+  private readonly kiraRatingsUrls: string[];
   private readonly fetchImpl: FetchLike;
   private requestQueue: Promise<void> = Promise.resolve();
   private nextRequestAt = 0;
@@ -144,7 +148,12 @@ export class CodeforcesClient {
     this.minRequestIntervalMs = minRequestIntervalMs;
     this.publicProblemsCacheTtlMs = publicProblemsCacheTtlMs;
     this.externalRatingsCacheTtlMs = externalRatingsCacheTtlMs;
-    this.kiraRatingsUrl = options.kiraRatingsUrl?.trim() || DEFAULT_KIRA_RATINGS_URL;
+    const configuredKiraUrls = options.kiraRatingsUrls?.map((url) => url.trim()).filter(Boolean);
+    this.kiraRatingsUrls = configuredKiraUrls?.length
+      ? configuredKiraUrls
+      : options.kiraRatingsUrl?.trim()
+        ? [options.kiraRatingsUrl.trim()]
+        : [...DEFAULT_KIRA_RATINGS_URLS];
     this.fetchImpl = options.fetchImpl ?? fetch;
   }
 
@@ -263,8 +272,14 @@ export class CodeforcesClient {
       return Number.isFinite(externalRating)
         ? { rating: externalRating, source: "kira" }
         : { source: "unrated" };
-    } catch {
+    } catch (err) {
       // External fallback không được làm /task add thất bại khi nguồn tạm offline.
+      getLogger().warn("[codeforces] Không lấy được rating external", {
+        contestId,
+        problemIndex: normalizedIndex,
+        urls: this.kiraRatingsUrls,
+        error: err instanceof Error ? err.message : String(err),
+      });
       return { source: "unrated" };
     }
   }
@@ -280,34 +295,28 @@ export class CodeforcesClient {
     if (!forceRefresh && this.kiraRatingsInFlight) return this.kiraRatingsInFlight;
 
     const request = (async (): Promise<Map<string, number>> => {
-      let response: Response;
-      try {
-        response = await this.fetchImpl(this.kiraRatingsUrl, {
-          method: "GET",
-          headers: { Accept: "application/json" },
-        });
-      } catch (err) {
+      let contests: KiraContest[] | null = null;
+      const errors: string[] = [];
+      for (const url of this.kiraRatingsUrls) {
+        try {
+          const response = await this.fetchImpl(url, {
+            method: "GET",
+            headers: { Accept: "application/json" },
+          });
+          const body = await response.text();
+          if (!response.ok) throw new Error(`HTTP ${response.status}`);
+          const parsed = JSON.parse(body) as KiraContest[];
+          if (!Array.isArray(parsed)) throw new Error("response không phải mảng contest");
+          contests = parsed;
+          break;
+        } catch (err) {
+          errors.push(`${url}: ${err instanceof Error ? err.message : String(err)}`);
+        }
+      }
+      if (!contests) {
         throw new CodeforcesApiError(
-          `Không thể kết nối nguồn rating Kira: ${err instanceof Error ? err.message : String(err)}`
+          `Không thể tải nguồn rating Kira từ mọi mirror: ${errors.join(" | ")}`
         );
-      }
-      const body = await response.text();
-      if (!response.ok) {
-        throw new CodeforcesApiError(
-          `Nguồn rating Kira trả HTTP ${response.status}.`,
-          response.status,
-          body
-        );
-      }
-
-      let contests: KiraContest[];
-      try {
-        contests = JSON.parse(body) as KiraContest[];
-      } catch {
-        throw new CodeforcesApiError("Nguồn rating Kira trả JSON không hợp lệ.");
-      }
-      if (!Array.isArray(contests)) {
-        throw new CodeforcesApiError("Nguồn rating Kira không trả về một mảng contest.");
       }
 
       const ratings = new Map<string, number>();

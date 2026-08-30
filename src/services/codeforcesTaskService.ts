@@ -41,6 +41,7 @@ export interface RefreshResult {
 export interface CodeforcesTaskServiceApi {
   addTask(telegramId: number, problemQuery: string): Promise<CodeforcesTask>;
   listTasks(telegramId: number): CodeforcesTask[];
+  refreshRatings(telegramId: number): Promise<number>;
   refresh(telegramId: number): Promise<RefreshResult>;
   assertBreakAllowed(telegramId: number): void;
   problemUrl(task: Pick<CodeforcesTask, "contestId" | "index">): string;
@@ -138,6 +139,32 @@ export function createCodeforcesTaskService(
   const problemUrl = (task: Pick<CodeforcesTask, "contestId" | "index">): string =>
     `https://codeforces.com/problemset/problem/${task.contestId}/${task.index}`;
 
+  const updateRatings = async (tasks: CodeforcesTask[]): Promise<number> => {
+    const sourcePriority: Record<CodeforcesProblemRatingSource, number> = {
+      unrated: 0,
+      kira: 1,
+      codeforces: 2,
+    };
+    let ratingsUpdated = 0;
+    for (const task of tasks) {
+      try {
+        const resolved = await client.getProblemRating(task.contestId, task.index);
+        const currentSource = task.ratingSource ?? "unrated";
+        const isUpgrade = sourcePriority[resolved.source] > sourcePriority[currentSource];
+        const isSameSourceChange =
+          resolved.source === currentSource && resolved.rating !== task.rating;
+        if (isUpgrade || isSameSourceChange) {
+          task.rating = resolved.rating;
+          task.ratingSource = resolved.source;
+          ratingsUpdated++;
+        }
+      } catch {
+        // Một bài lỗi không được làm hỏng việc cập nhật các task còn lại.
+      }
+    }
+    return ratingsUpdated;
+  };
+
   return {
     async addTask(telegramId: number, problemQuery: string): Promise<CodeforcesTask> {
       requireHandle();
@@ -181,31 +208,17 @@ export function createCodeforcesTaskService(
       return [...getTasks(readState(), telegramId)];
     },
 
+    async refreshRatings(telegramId: number): Promise<number> {
+      const state = readState();
+      const updated = await updateRatings(getTasks(state, telegramId));
+      if (updated > 0) writeJsonState(filePath, state);
+      return updated;
+    },
+
     async refresh(telegramId: number): Promise<RefreshResult> {
       const currentState = readState();
       const currentTasks = getTasks(currentState, telegramId);
-      const sourcePriority: Record<CodeforcesProblemRatingSource, number> = {
-        unrated: 0,
-        kira: 1,
-        codeforces: 2,
-      };
-      let ratingsUpdated = 0;
-      for (const task of currentTasks) {
-        try {
-          const resolved = await client.getProblemRating(task.contestId, task.index);
-          const currentSource = task.ratingSource ?? "unrated";
-          const isUpgrade = sourcePriority[resolved.source] > sourcePriority[currentSource];
-          const isSameSourceChange =
-            resolved.source === currentSource && resolved.rating !== task.rating;
-          if (isUpgrade || isSameSourceChange) {
-            task.rating = resolved.rating;
-            task.ratingSource = resolved.source;
-            ratingsUpdated++;
-          }
-        } catch {
-          // Task cũ có thể không còn trong problemset; vẫn tiếp tục refresh AC.
-        }
-      }
+      const ratingsUpdated = await updateRatings(currentTasks);
       const activeTasks = currentTasks.filter((task) => task.status === "active");
       if (activeTasks.length === 0) {
         if (ratingsUpdated > 0) writeJsonState(filePath, currentState);

@@ -9,7 +9,7 @@ import { attachNotifyBridge } from "./events/notifyBridge";
 import { createNotificationService } from "./services/notificationService";
 import { createEmergencyAuthService } from "./services/emergencyAuthService";
 import { createSafeModeService } from "./services/safeModeService";
-import { createFocusService, handleFocusExpire } from "./services/focusService";
+import { createFocusService } from "./services/focusService";
 import { createMarkLostService } from "./services/markLostService";
 import { createBlacklistService } from "./services/blacklistService";
 import { createDeviceInfoService } from "./services/deviceInfoService";
@@ -125,7 +125,10 @@ async function main(): Promise<void> {
 
   const focusScheduler = new FocusScheduler(
     config.constants.scheduleFilePath,
-    () => handleFocusExpire(deviceCommands, bus),
+    async () => {
+      // Duration hết hạn cũng phải giữ profile nếu Sleep/recurring source khác còn active.
+      if (focusServiceRef) await focusServiceRef.scheduleDeactivate();
+    },
     async (action: "start" | "end") => {
       if (!focusServiceRef) return;
       // Dùng scheduleActivate/scheduleDeactivate (KHÔNG phải enable/disable
