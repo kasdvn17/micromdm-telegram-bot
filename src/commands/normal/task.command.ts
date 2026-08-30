@@ -2,6 +2,12 @@ import { CodeforcesTaskServiceApi } from "../../services/codeforcesTaskService";
 import { AuthTier, CommandContext, CommandDefinition } from "../../types/command.types";
 import { ValidationError } from "../../utils/errors";
 
+function formatRating(rating?: number, source?: string): string {
+  if (!rating) return "Unrated";
+  if (source === "kira") return `${rating} (external: Kira)`;
+  return `${rating} (Codeforces)`;
+}
+
 function formatTaskList(taskService: CodeforcesTaskServiceApi, telegramId: number): string {
   const tasks = taskService.listTasks(telegramId);
   if (tasks.length === 0) return "📋 Chưa có task Codeforces nào.";
@@ -12,11 +18,11 @@ function formatTaskList(taskService: CodeforcesTaskServiceApi, telegramId: numbe
     `📋 Codeforces tasks: ${active.length} active, ${solved.length} đã AC`,
     ...active.map(
       (task) =>
-        `⏳ ${task.contestId}${task.index} - ${task.name}\n${taskService.problemUrl(task)}`
+        `⏳ ${task.contestId}${task.index} - ${task.name} — ${formatRating(task.rating, task.ratingSource)}\n${taskService.problemUrl(task)}`
     ),
     ...solved.map(
       (task) =>
-        `✅ ${task.contestId}${task.index} - ${task.name}\n${taskService.problemUrl(task)}`
+        `✅ ${task.contestId}${task.index} - ${task.name} — ${formatRating(task.rating, task.ratingSource)}\n${taskService.problemUrl(task)}`
     ),
   ];
   return lines.join("\n");
@@ -38,6 +44,7 @@ export function createTaskCommand(taskService: CodeforcesTaskServiceApi): Comman
         const task = await taskService.addTask(ctx.message.telegramId, query);
         return (
           `➕ Đã thêm task ${task.contestId}${task.index} - ${task.name}.\n` +
+          `Difficulty: ${formatRating(task.rating, task.ratingSource)}\n` +
           `${taskService.problemUrl(task)}\n` +
           "Task này phải được /refresh xác nhận AC trước khi có thể /focus break."
         );
@@ -62,6 +69,9 @@ export function createRefreshCommand(taskService: CodeforcesTaskServiceApi): Com
               .map((task) => `${task.contestId}${task.index}`)
               .join(", ")}.`
           : "🔄 Không có task AC mới.",
+        result.ratingsUpdated > 0
+          ? `📊 Đã cập nhật difficulty cho ${result.ratingsUpdated} task.`
+          : "📊 Difficulty không có thay đổi.",
         active.length === 0
           ? "✅ Không còn task active. Bạn có thể dùng /focus break."
           : `⏳ Còn ${active.length} task chưa AC: ${active

@@ -29,6 +29,13 @@ export interface CodeforcesProblem {
   tags: string[];
 }
 
+export type CodeforcesProblemRatingSource = "codeforces" | "kira" | "unrated";
+
+export interface ResolvedCodeforcesProblemRating {
+  rating?: number;
+  source: CodeforcesProblemRatingSource;
+}
+
 export interface CodeforcesMember {
   handle: string;
   name?: string;

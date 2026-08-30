@@ -210,14 +210,18 @@ Các hàm trong `src/utils/codeforces.ts` chỉ dùng API anonymous nên chỉ �
 ```ts
 import {
   fetchAllUserSubmissions,
+  getCodeforcesProblemRating,
   hasUserSolvedPublicProblem,
 } from "./utils/codeforces";
 
 const submissions = await fetchAllUserSubmissions("tourist");
 const solved = await hasUserSolvedPublicProblem("tourist", 4, "A");
+const difficulty = await getCodeforcesProblemRating(4, "A");
 ```
 
 `hasUserSolvedPublicProblem()` chỉ trả `true` khi bài vẫn có trong problemset public và user có submission với `verdict === "OK"` cho đúng `contestId` và `index`.
+
+`getCodeforcesProblemRating()` ưu tiên rating chính thức từ Codeforces. Nếu API chưa có rating, hàm dùng dataset JSON công khai của [Codeforces Problems](https://github.com/kira924age/CodeforcesProblems), cache 24 giờ và trả nguồn `kira`; nếu cả hai nguồn đều thiếu thì trả `source: "unrated"`. `/task add` và `/task list` cũng hiển thị difficulty kèm nguồn.
 
 Đặt `CODEFORCES_HANDLE` trong `.env`, sau đó dùng `/task add 4A` (cũng hỗ trợ URL hoặc đúng tên bài). `/refresh` lấy submission mới nhất, đánh dấu các bài đã AC và `/focus break` sẽ bị từ chối khi còn ít nhất một task active.
 

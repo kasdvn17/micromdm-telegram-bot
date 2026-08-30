@@ -1,4 +1,8 @@
-import { CodeforcesProblem, CodeforcesSubmission } from "../types/codeforces.types";
+import {
+  CodeforcesProblem,
+  CodeforcesProblemRatingSource,
+  CodeforcesSubmission,
+} from "../types/codeforces.types";
 import {
   CodeforcesClient,
   hasAcceptedSubmissionForProblem,
@@ -15,6 +19,8 @@ export interface CodeforcesTask {
   status: CodeforcesTaskStatus;
   addedAt: string;
   solvedAt?: string;
+  rating?: number;
+  ratingSource?: CodeforcesProblemRatingSource;
 }
 
 interface UserTaskState {
@@ -29,6 +35,7 @@ export interface RefreshResult {
   tasks: CodeforcesTask[];
   newlySolved: CodeforcesTask[];
   unavailablePublicProblems: CodeforcesTask[];
+  ratingsUpdated: number;
 }
 
 export interface CodeforcesTaskServiceApi {
@@ -138,6 +145,7 @@ export function createCodeforcesTaskService(
         await client.fetchPublicProblems(),
         problemQuery
       );
+      const resolvedRating = await client.getProblemRating(problem.contestId!, problem.index);
       const state = readState();
       const tasks = getTasks(state, telegramId);
       const key = problemKey(problem.contestId!, problem.index);
@@ -158,6 +166,8 @@ export function createCodeforcesTaskService(
         name: problem.name,
         status: "active",
         addedAt: new Date().toISOString(),
+        rating: resolvedRating.rating,
+        ratingSource: resolvedRating.source,
       };
       if (!state.users[String(telegramId)]) {
         state.users[String(telegramId)] = { tasks: [] };
@@ -174,9 +184,37 @@ export function createCodeforcesTaskService(
     async refresh(telegramId: number): Promise<RefreshResult> {
       const currentState = readState();
       const currentTasks = getTasks(currentState, telegramId);
+      const sourcePriority: Record<CodeforcesProblemRatingSource, number> = {
+        unrated: 0,
+        kira: 1,
+        codeforces: 2,
+      };
+      let ratingsUpdated = 0;
+      for (const task of currentTasks) {
+        try {
+          const resolved = await client.getProblemRating(task.contestId, task.index);
+          const currentSource = task.ratingSource ?? "unrated";
+          const isUpgrade = sourcePriority[resolved.source] > sourcePriority[currentSource];
+          const isSameSourceChange =
+            resolved.source === currentSource && resolved.rating !== task.rating;
+          if (isUpgrade || isSameSourceChange) {
+            task.rating = resolved.rating;
+            task.ratingSource = resolved.source;
+            ratingsUpdated++;
+          }
+        } catch {
+          // Task cũ có thể không còn trong problemset; vẫn tiếp tục refresh AC.
+        }
+      }
       const activeTasks = currentTasks.filter((task) => task.status === "active");
       if (activeTasks.length === 0) {
-        return { tasks: [...currentTasks], newlySolved: [], unavailablePublicProblems: [] };
+        if (ratingsUpdated > 0) writeJsonState(filePath, currentState);
+        return {
+          tasks: [...currentTasks],
+          newlySolved: [],
+          unavailablePublicProblems: [],
+          ratingsUpdated,
+        };
       }
 
       const codeforcesHandle = requireHandle();
@@ -211,11 +249,12 @@ export function createCodeforcesTaskService(
         }
       }
 
-      if (newlySolved.length > 0) writeJsonState(filePath, currentState);
+      if (newlySolved.length > 0 || ratingsUpdated > 0) writeJsonState(filePath, currentState);
       return {
         tasks: [...currentTasks],
         newlySolved: [...newlySolved],
         unavailablePublicProblems: [...unavailablePublicProblems],
+        ratingsUpdated,
       };
     },
 
