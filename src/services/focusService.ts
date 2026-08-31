@@ -137,7 +137,7 @@ export function createFocusService(
     if (scheduler.isWithinSleepWindow()) {
       throw new ValidationError(
         `Đang trong Sleep Mode (${FocusScheduler.SLEEP_START} - ${FocusScheduler.SLEEP_END}) nên /focus ${actionLabel} không có tác dụng. ` +
-          `Có thể mở khóa /focus off bằng cách AC 10 bài Codeforces trong ngày rồi dùng /refresh.`
+          `Có thể mở khóa /focus off bằng cách AC 10 task Codeforces hợp lệ trong ngày rồi dùng /refresh.`
       );
     }
     if (scheduler.isWithinScheduleWindowToday()) {
@@ -190,7 +190,7 @@ export function createFocusService(
         }
         if (!unlockedForToday && !unlock.eligible) {
           throw new ValidationError(
-            "Đang trong Sleep Mode. Cần AC ít nhất 10 bài Codeforces trong ngày rồi dùng /refresh trước khi tắt."
+            "Đang trong Sleep Mode. Cần AC ít nhất 10 task Codeforces hợp lệ trong ngày rồi dùng /refresh trước khi tắt."
           );
         }
         scheduler.disableSleepForCurrentSession(new Date(), unlockedForToday);
@@ -274,7 +274,7 @@ export function createFocusService(
     async breakFocus(ms: number): Promise<void> {
       if (scheduler.isWithinSleepWindow()) {
         throw new ValidationError(
-          `Đang trong Sleep Mode (${FocusScheduler.SLEEP_START} - ${FocusScheduler.SLEEP_END}) - không thể break. AC 10 bài Codeforces trong ngày, /refresh rồi dùng /focus off nếu muốn tắt phiên này.`
+          `Đang trong Sleep Mode (${FocusScheduler.SLEEP_START} - ${FocusScheduler.SLEEP_END}) - không thể break. AC 10 task Codeforces hợp lệ trong ngày, /refresh rồi dùng /focus off nếu muốn tắt phiên này.`
         );
       }
       if (!scheduler.isWithinScheduleWindowToday()) {

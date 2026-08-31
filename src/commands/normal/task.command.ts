@@ -46,7 +46,7 @@ export function createTaskCommand(taskService: CodeforcesTaskServiceApi): Comman
           `➕ Đã thêm task ${task.contestId}${task.index} - ${task.name}.\n` +
           `Difficulty: ${formatRating(task.rating, task.ratingSource)}\n` +
           `${taskService.problemUrl(task)}\n` +
-          "Task chỉ dùng để theo dõi; mỗi lần /focus break cần 3 bài AC mới kể từ lần break trước."
+          "Task phải được thêm trước khi AC thì mới được tính cho /focus break và /focus off."
         );
       }
       if (sub === "list") {
@@ -69,7 +69,6 @@ export function createRefreshCommand(
       const result = await taskService.refresh(ctx.message.telegramId);
       const gate = taskService.getDailyGateStatus(ctx.message.telegramId);
       const active = result.tasks.filter((task) => task.status === "active");
-      const dailyAcceptedCount = result.dailyAccepted.problemKeys.length;
       const lines = [
         result.newlySolved.length > 0
           ? `🔄 Đã xác nhận thêm ${result.newlySolved.length} task AC: ${result.newlySolved
@@ -80,10 +79,10 @@ export function createRefreshCommand(
           ? `📊 Đã cập nhật difficulty cho ${result.ratingsUpdated} task.`
           : "📊 Difficulty không có thay đổi.",
         `☕ Break kế tiếp: ${gate.acceptedSinceLastBreak}/${gate.breakRequiredCount} bài AC mới${gate.breakAllowed ? " — đã mở khóa." : "."}`,
-        `📅 Focus off: ${dailyAcceptedCount}/${gate.focusOffRequiredCount} bài AC hôm nay${gate.focusOffAllowed ? " — đã mở khóa." : "."}`,
+        `📅 Focus off: ${gate.dailyAcceptedCount}/${gate.focusOffRequiredCount} task AC hôm nay${gate.focusOffAllowed ? " — đã mở khóa." : "."}`,
         active.length === 0
           ? "✅ Không còn task active."
-          : `⏳ Còn ${active.length} task chưa AC (không ảnh hưởng điều kiện break): ${active
+          : `⏳ Còn ${active.length} task chưa AC: ${active
               .map((task) => `${task.contestId}${task.index}`)
               .join(", ")}.`,
       ];

@@ -13,8 +13,8 @@ Quy ước: lệnh Emergency/Two-Factor đặt password ngay sau tên lệnh:
 
 /focus on|off|status|remaining|extend <d>|cancel
 /focus <duration> — bật Focus theo thời lượng, vd /focus 90m
-/focus break [d] — cần 3 bài AC mới kể từ break trước
-/focus off — cần 10 bài Codeforces AC trong ngày và /refresh
+/focus break [d] — cần 3 task AC mới kể từ break trước
+/focus off — cần 10 task AC trong ngày và /refresh
 /focus schedule list
 /focus schedule add <start> <end> [days]
 /focus schedule enable|disable <id>
@@ -24,7 +24,7 @@ Quy ước: lệnh Emergency/Two-Factor đặt password ngay sau tên lệnh:
 /focus blwadd <website>
 /focus blwlist
 
-/task add <problem> — thêm bài Codeforces cần theo dõi
+/task add <problem> — phải thêm trước khi AC để được tính
 /task list — xem task active/đã AC
 /refresh — cập nhật task và số bài AC trong ngày
 

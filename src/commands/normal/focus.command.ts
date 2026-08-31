@@ -44,14 +44,14 @@ export function createFocusCommand(
           const remaining = focusService.breakUsageRemainingToday();
           const gate = codeforcesTasks?.getDailyGateStatus(ctx.message.telegramId);
           const codeforcesInfo = gate
-            ? `\nCodeforces: ${gate.acceptedSinceLastBreak}/${gate.breakRequiredCount} bài mới cho break; ${gate.dailyAcceptedCount}/${gate.focusOffRequiredCount} bài hôm nay cho /focus off.`
+            ? `\nCodeforces tasks: ${gate.acceptedSinceLastBreak}/${gate.breakRequiredCount} task mới cho break; ${gate.dailyAcceptedCount}/${gate.focusOffRequiredCount} task hôm nay cho /focus off.`
             : "";
           const breakInfo = `\nBreak còn lại hôm nay: ${remaining.breaksRemaining} lần / ${formatDuration(remaining.totalMsRemaining)}.${codeforcesInfo}`;
           if (status.sleepUnlock.withinTimeRange && status.sleepUnlock.disabled) {
             return `🌙 Sleep Mode đã được TẮT cho phiên hôm nay.${breakInfo}`;
           }
           if (status.withinSleep) {
-            return `😴 Đang trong Sleep Mode (22:00 - 05:00). Cần đủ 10 bài AC trong ngày và /refresh để dùng /focus off.${breakInfo}`;
+            return `😴 Đang trong Sleep Mode (22:00 - 05:00). Cần đủ 10 task AC hợp lệ trong ngày và /refresh để dùng /focus off.${breakInfo}`;
           }
           if (status.onBreak) {
             return `🎯 Focus đang TẠM NGƯNG (break) - còn ${formatDuration(status.breakRemainingMs ?? 0)}, sẽ tự bật lại nếu vẫn trong khung giờ schedule.${breakInfo}`;

@@ -46,11 +46,11 @@ function formatEvent(event: AppEvent): string {
     case "focus.disabled":
       return `🎯 Focus mode: TẮT`;
     case "focus.sleep.enabled":
-      return `😴 Sleep Mode: BẮT ĐẦU (22:00 - 05:00 sáng mai). AC 10 bài Codeforces trong ngày và dùng /refresh để mở khóa /focus off.`;
+      return `😴 Sleep Mode: BẮT ĐẦU (22:00 - 05:00 sáng mai). AC 10 task Codeforces hợp lệ trong ngày và dùng /refresh để mở khóa /focus off.`;
     case "focus.sleep.disabled":
       return `😴 Sleep Mode: KẾT THÚC (05:00) - Focus trở về trạng thái bình thường.`;
     case "focus.sleep.overridden":
-      return `🌙 Đã tắt Sleep Mode cho phần còn lại của phiên hôm nay sau khi đạt đủ 10 bài AC trong ngày.`;
+      return `🌙 Đã tắt Sleep Mode cho phần còn lại của phiên hôm nay sau khi đạt đủ 10 task AC trong ngày.`;
     case "focus.break.started":
       return (
         `⏸️ Focus tạm ngưng (break) trong ${Math.round(event.durationMs / 60000)} phút, sẽ tự bật lại nếu vẫn còn trong khung giờ schedule.\n` +

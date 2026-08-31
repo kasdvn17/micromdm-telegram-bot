@@ -56,7 +56,7 @@ export class FocusScheduler {
    * Sleep Mode: khung giờ CỐ ĐỊNH, hardcode (KHÔNG cấu hình qua lệnh/JSON
    * như recurring schedule thường), qua đêm (22:00 -> 05:00 sáng hôm sau).
    * Mặc định không thể tắt. Việc mở khóa `/focus off` được command layer xác
-   * nhận bằng 10 bài Codeforces AC trong ngày rồi force-disable đúng phiên.
+   * nhận bằng 10 task Codeforces AC hợp lệ trong ngày rồi force-disable đúng phiên.
    */
   static readonly SLEEP_START = "22:00";
   static readonly SLEEP_END = "05:00";
