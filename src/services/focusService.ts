@@ -30,7 +30,8 @@ export interface FocusStatus {
 
 export interface FocusServiceApi {
   enable(durationMs?: number): Promise<void>;
-  disable(): Promise<FocusDisableResult>;
+  /** `unlockedForToday` chỉ được truyền true sau khi Codeforces gate xác nhận đủ 10 AC. */
+  disable(unlockedForToday?: boolean): Promise<FocusDisableResult>;
   status(): FocusStatus;
   extend(ms: number): Promise<void>;
   cancel(): Promise<void>;
@@ -136,7 +137,7 @@ export function createFocusService(
     if (scheduler.isWithinSleepWindow()) {
       throw new ValidationError(
         `Đang trong Sleep Mode (${FocusScheduler.SLEEP_START} - ${FocusScheduler.SLEEP_END}) nên /focus ${actionLabel} không có tác dụng. ` +
-          `Có thể mở khóa /focus off bằng cách AC 3 task sau 22:00 rồi dùng /refresh.`
+          `Có thể mở khóa /focus off bằng cách AC 10 bài Codeforces trong ngày rồi dùng /refresh.`
       );
     }
     if (scheduler.isWithinScheduleWindowToday()) {
@@ -174,7 +175,7 @@ export function createFocusService(
       bus.publish({ type: "focus.enabled", durationMs });
     },
 
-    async disable(): Promise<FocusDisableResult> {
+    async disable(unlockedForToday = false): Promise<FocusDisableResult> {
       if (safeModeService.isActive()) {
         throw new ValidationError(
           "Safe mode đang bật - dùng /safe off để tắt Focus."
@@ -182,27 +183,38 @@ export function createFocusService(
       }
       if (scheduler.isWithinSleepTimeRange()) {
         const unlock = scheduler.getSleepUnlockStatus();
-        if (unlock.disabled) {
+        if (unlock.disabled && !unlockedForToday) {
           const focusStillActive =
             scheduler.isWithinScheduleWindowToday() && !scheduler.isOnBreak();
           return { sleepModeDisabled: true, focusStillActive };
         }
-        if (!unlock.eligible) {
+        if (!unlockedForToday && !unlock.eligible) {
           throw new ValidationError(
-            `Đang trong Sleep Mode. Cần AC ít nhất ${unlock.requiredTaskCount} bài sau 22:00 rồi dùng /refresh trước khi tắt ` +
-              `(hiện tại ${unlock.acceptedTaskCount}/${unlock.requiredTaskCount}).`
+            "Đang trong Sleep Mode. Cần AC ít nhất 10 bài Codeforces trong ngày rồi dùng /refresh trước khi tắt."
           );
         }
-        scheduler.disableSleepForCurrentSession();
+        scheduler.disableSleepForCurrentSession(new Date(), unlockedForToday);
         scheduler.cancelAllDurations();
         manuallyActive = false;
-        const focusStillActive =
-          scheduler.isWithinScheduleWindowToday() && !scheduler.isOnBreak();
+        if (unlockedForToday) {
+          while (scheduler.scheduleWindowToday()) {
+            scheduler.skipToday(scheduler.scheduleWindowToday()!.id);
+          }
+          scheduler.clearBreak();
+        }
+        const focusStillActive = scheduler.isWithinScheduleWindowToday() && !scheduler.isOnBreak();
         if (!focusStillActive) await removeFocusProfile();
         bus.publish({ type: "focus.sleep.overridden" });
         return { sleepModeDisabled: true, focusStillActive };
       }
-      requireNotWithinSchedule("off");
+      if (unlockedForToday) {
+        while (scheduler.scheduleWindowToday()) {
+          scheduler.skipToday(scheduler.scheduleWindowToday()!.id);
+        }
+        scheduler.clearBreak();
+      } else {
+        requireNotWithinSchedule("off");
+      }
       // Dọn TOÀN BỘ duration-schedule (không chỉ 1 cái tìm được bởi
       // activeDurationSchedule()) để tránh còn sót schedule "ma" tự hết hạn
       // sau này và bắn thông báo "focus.disabled" giả dù người dùng đã tắt
@@ -262,7 +274,7 @@ export function createFocusService(
     async breakFocus(ms: number): Promise<void> {
       if (scheduler.isWithinSleepWindow()) {
         throw new ValidationError(
-          `Đang trong Sleep Mode (${FocusScheduler.SLEEP_START} - ${FocusScheduler.SLEEP_END}) - không thể break. AC 3 task sau 22:00, /refresh rồi dùng /focus off nếu muốn tắt phiên này.`
+          `Đang trong Sleep Mode (${FocusScheduler.SLEEP_START} - ${FocusScheduler.SLEEP_END}) - không thể break. AC 10 bài Codeforces trong ngày, /refresh rồi dùng /focus off nếu muốn tắt phiên này.`
         );
       }
       if (!scheduler.isWithinScheduleWindowToday()) {

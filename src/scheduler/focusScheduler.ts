@@ -55,13 +55,12 @@ export class FocusScheduler {
   /**
    * Sleep Mode: khung giờ CỐ ĐỊNH, hardcode (KHÔNG cấu hình qua lệnh/JSON
    * như recurring schedule thường), qua đêm (22:00 -> 05:00 sáng hôm sau).
-   * Mặc định không thể tắt. Ngoại lệ duy nhất: user AC lần đầu ít nhất 3 task
-   * sau khi phiên bắt đầu và chạy /refresh; khi đó /focus off có thể tắt phần
-   * còn lại của đúng phiên Sleep Mode hiện tại.
+   * Mặc định không thể tắt. Việc mở khóa `/focus off` được command layer xác
+   * nhận bằng 10 bài Codeforces AC trong ngày rồi force-disable đúng phiên.
    */
   static readonly SLEEP_START = "22:00";
   static readonly SLEEP_END = "05:00";
-  static readonly SLEEP_UNLOCK_REQUIRED_AC = 3;
+  static readonly SLEEP_UNLOCK_REQUIRED_AC = 10;
 
   private tickHandle: NodeJS.Timeout | null = null;
   private readonly firedRecurringToday = new Set<string>(); // key: `${scheduleId}:${dateStr}:${start|end}`
@@ -273,17 +272,19 @@ export class FocusScheduler {
     return this.getSleepUnlockStatus(now);
   }
 
-  disableSleepForCurrentSession(now: Date = new Date()): boolean {
+  disableSleepForCurrentSession(now: Date = new Date(), force = false): boolean {
     if (!this.isWithinSleepTimeRange(now)) return false;
     const state = this.ensureSleepSession(now);
     if (
-      !state.sleepUnlock ||
-      state.sleepUnlock.acceptedTaskCount < FocusScheduler.SLEEP_UNLOCK_REQUIRED_AC
+      !force &&
+      (!state.sleepUnlock ||
+        state.sleepUnlock.acceptedTaskCount < FocusScheduler.SLEEP_UNLOCK_REQUIRED_AC)
     ) {
       return false;
     }
-    if (!state.sleepUnlock.disabledAt) {
-      state.sleepUnlock.disabledAt = now.toISOString();
+    const sleepUnlock = state.sleepUnlock!;
+    if (!sleepUnlock.disabledAt) {
+      sleepUnlock.disabledAt = now.toISOString();
       this.writeState(state);
     }
     return true;

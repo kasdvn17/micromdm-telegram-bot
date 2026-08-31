@@ -232,7 +232,7 @@ async function main(): Promise<void> {
   const commands: CommandDefinition[] = [
     createFocusCommand(focusService, codeforcesTaskService),
     createTaskCommand(codeforcesTaskService),
-    createRefreshCommand(codeforcesTaskService, focusService),
+    createRefreshCommand(codeforcesTaskService),
     createNotifyCommand(notificationService),
     createPingCommand(),
     createHealthCommand(),

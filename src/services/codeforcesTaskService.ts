@@ -25,6 +25,7 @@ export interface CodeforcesTask {
 
 interface UserTaskState {
   tasks: CodeforcesTask[];
+  dailyAccepted?: DailyAcceptedProgress;
 }
 
 interface CodeforcesTaskState {
@@ -36,6 +37,25 @@ export interface RefreshResult {
   newlySolved: CodeforcesTask[];
   unavailablePublicProblems: CodeforcesTask[];
   ratingsUpdated: number;
+  dailyAccepted: DailyAcceptedProgress;
+}
+
+export interface DailyAcceptedProgress {
+  date: string;
+  problemKeys: string[];
+  refreshedAt: string;
+  /** Các bài đã có tại thời điểm bắt đầu break gần nhất trong ngày. */
+  breakBaselineProblemKeys?: string[];
+}
+
+export interface DailyCodeforcesGateStatus {
+  date: string;
+  dailyAcceptedCount: number;
+  acceptedSinceLastBreak: number;
+  breakRequiredCount: number;
+  focusOffRequiredCount: number;
+  breakAllowed: boolean;
+  focusOffAllowed: boolean;
 }
 
 export interface CodeforcesTaskServiceApi {
@@ -43,8 +63,21 @@ export interface CodeforcesTaskServiceApi {
   listTasks(telegramId: number): CodeforcesTask[];
   refreshRatings(telegramId: number): Promise<number>;
   refresh(telegramId: number): Promise<RefreshResult>;
+  getDailyGateStatus(telegramId: number): DailyCodeforcesGateStatus;
   assertBreakAllowed(telegramId: number): void;
+  recordBreakStarted(telegramId: number): void;
+  assertFocusOffAllowed(telegramId: number): void;
   problemUrl(task: Pick<CodeforcesTask, "contestId" | "index">): string;
+}
+
+const BREAK_REQUIRED_NEW_AC = 3;
+const FOCUS_OFF_REQUIRED_DAILY_AC = 10;
+
+function localDateStr(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
 }
 
 function problemKey(contestId: number, index: string): string {
@@ -126,6 +159,38 @@ export function createCodeforcesTaskService(
 
   const getTasks = (state: CodeforcesTaskState, telegramId: number): CodeforcesTask[] =>
     state.users[String(telegramId)]?.tasks ?? [];
+
+  const getDailyAccepted = (
+    state: CodeforcesTaskState,
+    telegramId: number,
+    now: Date = new Date()
+  ): DailyAcceptedProgress => {
+    const date = localDateStr(now);
+    const stored = state.users[String(telegramId)]?.dailyAccepted;
+    return stored?.date === date
+      ? stored
+      : { date, problemKeys: [], refreshedAt: now.toISOString() };
+  };
+
+  const getDailyGateStatus = (
+    state: CodeforcesTaskState,
+    telegramId: number,
+    now: Date = new Date()
+  ): DailyCodeforcesGateStatus => {
+    const progress = getDailyAccepted(state, telegramId, now);
+    const baseline = new Set(progress.breakBaselineProblemKeys ?? []);
+    const acceptedSinceLastBreak = progress.problemKeys.filter((key) => !baseline.has(key)).length;
+    const dailyAcceptedCount = progress.problemKeys.length;
+    return {
+      date: progress.date,
+      dailyAcceptedCount,
+      acceptedSinceLastBreak,
+      breakRequiredCount: BREAK_REQUIRED_NEW_AC,
+      focusOffRequiredCount: FOCUS_OFF_REQUIRED_DAILY_AC,
+      breakAllowed: acceptedSinceLastBreak >= BREAK_REQUIRED_NEW_AC,
+      focusOffAllowed: dailyAcceptedCount >= FOCUS_OFF_REQUIRED_DAILY_AC,
+    };
+  };
 
   const requireHandle = (): string => {
     if (!normalizedHandle) {
@@ -220,16 +285,6 @@ export function createCodeforcesTaskService(
       const currentTasks = getTasks(currentState, telegramId);
       const ratingsUpdated = await updateRatings(currentTasks);
       const activeTasks = currentTasks.filter((task) => task.status === "active");
-      if (activeTasks.length === 0) {
-        if (ratingsUpdated > 0) writeJsonState(filePath, currentState);
-        return {
-          tasks: [...currentTasks],
-          newlySolved: [],
-          unavailablePublicProblems: [],
-          ratingsUpdated,
-        };
-      }
-
       const codeforcesHandle = requireHandle();
       const [submissions, publicProblems] = await Promise.all([
         client.fetchAllUserSubmissions(codeforcesHandle),
@@ -240,6 +295,25 @@ export function createCodeforcesTaskService(
           .filter((problem) => problem.contestId)
           .map((problem) => problemKey(problem.contestId!, problem.index))
       );
+      const refreshedAt = new Date();
+      const today = localDateStr(refreshedAt);
+      const dailyProblemKeys = new Set<string>();
+      for (const submission of submissions) {
+        const contestId = submission.problem.contestId ?? submission.contestId;
+        if (submission.verdict !== "OK" || !contestId) continue;
+        if (localDateStr(new Date(submission.creationTimeSeconds * 1000)) !== today) continue;
+        const key = problemKey(contestId, submission.problem.index);
+        if (publicKeys.has(key)) dailyProblemKeys.add(key);
+      }
+      const dailyAccepted: DailyAcceptedProgress = {
+        date: today,
+        problemKeys: [...dailyProblemKeys].sort(),
+        refreshedAt: refreshedAt.toISOString(),
+        breakBaselineProblemKeys:
+          currentState.users[String(telegramId)]?.dailyAccepted?.date === today
+            ? currentState.users[String(telegramId)].dailyAccepted?.breakBaselineProblemKeys ?? []
+            : [],
+      };
       const newlySolved: CodeforcesTask[] = [];
       const unavailablePublicProblems: CodeforcesTask[] = [];
 
@@ -260,30 +334,54 @@ export function createCodeforcesTaskService(
         }
       }
 
-      if (newlySolved.length > 0 || ratingsUpdated > 0) writeJsonState(filePath, currentState);
+      if (!currentState.users[String(telegramId)]) {
+        currentState.users[String(telegramId)] = { tasks: currentTasks };
+      }
+      currentState.users[String(telegramId)].dailyAccepted = dailyAccepted;
+      writeJsonState(filePath, currentState);
       return {
         tasks: [...currentTasks],
         newlySolved: [...newlySolved],
         unavailablePublicProblems: [...unavailablePublicProblems],
         ratingsUpdated,
+        dailyAccepted,
       };
     },
 
-    assertBreakAllowed(telegramId: number): void {
-      const activeTasks = getTasks(readState(), telegramId).filter(
-        (task) => task.status === "active"
-      );
-      if (activeTasks.length === 0) return;
+    getDailyGateStatus(telegramId: number): DailyCodeforcesGateStatus {
+      return getDailyGateStatus(readState(), telegramId);
+    },
 
-      const preview = activeTasks
-        .slice(0, 8)
-        .map((task) => `${task.contestId}${task.index} - ${task.name}`)
-        .join("\n");
-      const remaining =
-        activeTasks.length > 8 ? `\n... và ${activeTasks.length - 8} bài khác.` : "";
+    assertBreakAllowed(telegramId: number): void {
+      const status = getDailyGateStatus(readState(), telegramId);
+      if (status.breakAllowed) return;
+
       throw new ValidationError(
-        `Không thể break: còn ${activeTasks.length} task Codeforces chưa AC.\n${preview}${remaining}\n` +
-          "Sau khi AC, dùng /refresh để cập nhật trạng thái."
+        `Không thể break: mới xác nhận ${status.acceptedSinceLastBreak}/${status.breakRequiredCount} bài Codeforces AC mới kể từ lần break gần nhất.\n` +
+          `Hãy AC thêm ${status.breakRequiredCount - status.acceptedSinceLastBreak} bài rồi dùng /refresh để cập nhật. ` +
+          "Không bắt buộc các bài đó phải nằm trong task list."
+      );
+    },
+
+    recordBreakStarted(telegramId: number): void {
+      const state = readState();
+      const progress = getDailyAccepted(state, telegramId);
+      if (!state.users[String(telegramId)]) {
+        state.users[String(telegramId)] = { tasks: [] };
+      }
+      state.users[String(telegramId)].dailyAccepted = {
+        ...progress,
+        breakBaselineProblemKeys: [...progress.problemKeys],
+      };
+      writeJsonState(filePath, state);
+    },
+
+    assertFocusOffAllowed(telegramId: number): void {
+      const status = getDailyGateStatus(readState(), telegramId);
+      if (status.focusOffAllowed) return;
+      throw new ValidationError(
+        `Không thể tắt Focus: hôm nay mới xác nhận ${status.dailyAcceptedCount}/${status.focusOffRequiredCount} bài Codeforces AC khác nhau.\n` +
+          `Hãy AC thêm ${status.focusOffRequiredCount - status.dailyAcceptedCount} bài rồi dùng /refresh để cập nhật.`
       );
     },
 

@@ -8,7 +8,13 @@ const DAY_NAMES = ["CN", "T2", "T3", "T4", "T5", "T6", "T7"];
 
 export function createFocusCommand(
   focusService: FocusServiceApi,
-  codeforcesTasks?: Pick<CodeforcesTaskServiceApi, "assertBreakAllowed">
+  codeforcesTasks?: Pick<
+    CodeforcesTaskServiceApi,
+    | "assertBreakAllowed"
+    | "recordBreakStarted"
+    | "assertFocusOffAllowed"
+    | "getDailyGateStatus"
+  >
 ): CommandDefinition {
   return {
     name: "focus",
@@ -23,7 +29,8 @@ export function createFocusCommand(
 
         case "off":
           {
-            const result = await focusService.disable();
+            codeforcesTasks?.assertFocusOffAllowed(ctx.message.telegramId);
+            const result = await focusService.disable(!!codeforcesTasks);
             if (result.sleepModeDisabled) {
               return result.focusStillActive
                 ? "🌙 Sleep Mode đã tắt cho phiên hôm nay, nhưng Focus vẫn bật do recurring schedule đang active."
@@ -35,16 +42,16 @@ export function createFocusCommand(
         case "status": {
           const status = focusService.status();
           const remaining = focusService.breakUsageRemainingToday();
-          const breakInfo = `\nBreak còn lại hôm nay: ${remaining.breaksRemaining} lần / ${formatDuration(remaining.totalMsRemaining)}.`;
+          const gate = codeforcesTasks?.getDailyGateStatus(ctx.message.telegramId);
+          const codeforcesInfo = gate
+            ? `\nCodeforces: ${gate.acceptedSinceLastBreak}/${gate.breakRequiredCount} bài mới cho break; ${gate.dailyAcceptedCount}/${gate.focusOffRequiredCount} bài hôm nay cho /focus off.`
+            : "";
+          const breakInfo = `\nBreak còn lại hôm nay: ${remaining.breaksRemaining} lần / ${formatDuration(remaining.totalMsRemaining)}.${codeforcesInfo}`;
           if (status.sleepUnlock.withinTimeRange && status.sleepUnlock.disabled) {
             return `🌙 Sleep Mode đã được TẮT cho phiên hôm nay.${breakInfo}`;
           }
           if (status.withinSleep) {
-            const unlock = status.sleepUnlock;
-            const action = unlock.eligible
-              ? "Đã đủ điều kiện, dùng /focus off để tắt cho phiên hôm nay."
-              : `AC thêm ${unlock.requiredTaskCount - unlock.acceptedTaskCount} bài sau 22:00 để mở khóa /focus off.`;
-            return `😴 Đang trong Sleep Mode (22:00 - 05:00) - tiến độ ${unlock.acceptedTaskCount}/${unlock.requiredTaskCount}. ${action}${breakInfo}`;
+            return `😴 Đang trong Sleep Mode (22:00 - 05:00). Cần đủ 10 bài AC trong ngày và /refresh để dùng /focus off.${breakInfo}`;
           }
           if (status.onBreak) {
             return `🎯 Focus đang TẠM NGƯNG (break) - còn ${formatDuration(status.breakRemainingMs ?? 0)}, sẽ tự bật lại nếu vẫn trong khung giờ schedule.${breakInfo}`;
@@ -62,6 +69,7 @@ export function createFocusCommand(
           const durationArg = rest[0] ?? "15m";
           const ms = parseDurationToMs(durationArg);
           await focusService.breakFocus(ms);
+          codeforcesTasks?.recordBreakStarted(ctx.message.telegramId);
           const remaining = focusService.breakUsageRemainingToday();
           return (
             `⏸️ Đã tạm ngưng Focus trong ${formatDuration(ms)}. Sẽ tự bật lại nếu vẫn còn trong khung giờ schedule.\n` +
