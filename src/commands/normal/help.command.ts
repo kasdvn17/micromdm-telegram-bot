@@ -24,7 +24,7 @@ Quy ước: lệnh Emergency/Two-Factor đặt password ngay sau tên lệnh:
 /focus blwadd <website>
 /focus blwlist
 
-/task add <problem> — chỉ nhận bài rating > 1600
+/task add <problem> — chỉ nhận bài rating >= 1600
 /task add bulk <id|url>... — thêm nhiều bài, không nhận tên
 /task list — chỉ xem task active
 /task list all — xem cả task đã AC

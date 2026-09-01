@@ -94,7 +94,7 @@ export function createTaskCommand(taskService: CodeforcesTaskServiceApi): Comman
         const query = rest.join(" ").trim();
         if (!query) {
           throw new ValidationError(
-            "Cú pháp: /task add <problem>. Chỉ nhận bài có rating > 1600."
+            "Cú pháp: /task add <problem>. Chỉ nhận bài có rating >= 1600."
           );
         }
         const task = await taskService.addTask(ctx.message.telegramId, query);
