@@ -74,6 +74,7 @@ export interface CodeforcesTaskServiceApi {
 
 const BREAK_REQUIRED_NEW_AC = 1;
 const FOCUS_OFF_REQUIRED_DAILY_AC = 7;
+const MIN_TASK_RATING_EXCLUSIVE = 1600;
 
 function localDateStr(date: Date): string {
   const year = date.getFullYear();
@@ -260,6 +261,18 @@ export function createCodeforcesTaskService(
         problemQuery
       );
       const resolvedRating = await client.getProblemRating(problem.contestId!, problem.index);
+      if (
+        !Number.isFinite(resolvedRating.rating) ||
+        resolvedRating.rating! <= MIN_TASK_RATING_EXCLUSIVE
+      ) {
+        const ratingLabel = Number.isFinite(resolvedRating.rating)
+          ? String(resolvedRating.rating)
+          : "Unrated";
+        throw new ValidationError(
+          `Không thể thêm ${problem.contestId}${problem.index}: rating hiện tại là ${ratingLabel}. ` +
+            `Chỉ được thêm bài có rating > ${MIN_TASK_RATING_EXCLUSIVE}.`
+        );
+      }
       const state = readState();
       const tasks = getTasks(state, telegramId);
       const key = problemKey(problem.contestId!, problem.index);

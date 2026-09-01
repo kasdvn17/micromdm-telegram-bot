@@ -47,6 +47,7 @@ Emergency không yêu cầu đúng username; vì vậy `EMERGENCY_PASSWORD` ph�
 
 /task add <problem>
 /task list
+/task list all
 /refresh
 
 /notify on|off|test
@@ -226,7 +227,7 @@ const difficulty = await getCodeforcesProblemRating(4, "A");
 
 `getCodeforcesProblemRating()` ưu tiên rating chính thức từ Codeforces. Nếu API chưa có rating, hàm dùng dataset JSON công khai của [Codeforces Problems](https://github.com/kira924age/CodeforcesProblems), cache 24 giờ và trả nguồn `kira`; nếu cả hai nguồn đều thiếu thì trả `source: "unrated"`. `/task add` và `/task list` cũng hiển thị difficulty kèm nguồn.
 
-Đặt `CODEFORCES_HANDLE` trong `.env`, sau đó dùng `/task add 4A` (cũng hỗ trợ URL hoặc đúng tên bài). Task chỉ hợp lệ cho gate khi được thêm vào danh sách trước submission AC đầu tiên. `/refresh` luôn đặt `solvedAt` theo submission `OK` đầu tiên của bài, không theo thời điểm refresh. Mỗi lần `/focus break` cần 1 task có `solvedAt` sau lần break trước. Ngoài Sleep Mode, `/focus off` cần 7 task có `solvedAt` trong ngày hiện tại; trong Sleep Mode, cần 3 task có `solvedAt` từ lúc phiên bắt đầu.
+Đặt `CODEFORCES_HANDLE` trong `.env`, sau đó dùng `/task add <problem>` (hỗ trợ mã, URL hoặc đúng tên bài). Chỉ bài có rating xác định và **lớn hơn 1600** mới được thêm; rating chính thức và rating external Kira đều hợp lệ. `/task list` chỉ hiện task active, còn `/task list all` hiện cả task đã AC. Task chỉ hợp lệ cho gate khi được thêm vào danh sách trước submission AC đầu tiên. `/refresh` luôn đặt `solvedAt` theo submission `OK` đầu tiên của bài, không theo thời điểm refresh. Mỗi lần `/focus break` cần 1 task có `solvedAt` sau lần break trước. Ngoài Sleep Mode, `/focus off` cần 7 task có `solvedAt` trong ngày hiện tại; trong Sleep Mode, cần 3 task có `solvedAt` từ lúc phiên bắt đầu.
 
 Trong Sleep Mode (22:00–05:00), `/focus off` đếm từ đúng 22:00 của phiên, kể cả sau khi qua nửa đêm, và tắt Sleep Mode cho phần còn lại của phiên hiện tại. Gate ngoài Sleep tự reset khi sang ngày mới.
 

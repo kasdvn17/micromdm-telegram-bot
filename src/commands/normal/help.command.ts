@@ -24,8 +24,9 @@ Quy ước: lệnh Emergency/Two-Factor đặt password ngay sau tên lệnh:
 /focus blwadd <website>
 /focus blwlist
 
-/task add <problem> — phải thêm trước khi AC để được tính
-/task list — xem task active/đã AC
+/task add <problem> — chỉ nhận bài rating > 1600
+/task list — chỉ xem task active
+/task list all — xem cả task đã AC
 /refresh — cập nhật task và tiến độ các gate Focus
 
 /notify on|off|test

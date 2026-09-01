@@ -9,22 +9,33 @@ function formatRating(rating?: number, source?: string): string {
   return `${rating} (Codeforces)`;
 }
 
-function formatTaskList(taskService: CodeforcesTaskServiceApi, telegramId: number): string {
+function formatTaskList(
+  taskService: CodeforcesTaskServiceApi,
+  telegramId: number,
+  includeSolved: boolean
+): string {
   const tasks = taskService.listTasks(telegramId);
   if (tasks.length === 0) return "📋 Chưa có task Codeforces nào.";
 
   const active = tasks.filter((task) => task.status === "active");
   const solved = tasks.filter((task) => task.status === "solved");
+  if (!includeSolved && active.length === 0) {
+    return `✅ Không còn task active. Có ${solved.length} task đã AC; dùng /task list all để xem.`;
+  }
   const lines = [
-    `📋 Codeforces tasks: ${active.length} active, ${solved.length} đã AC`,
+    includeSolved
+      ? `📋 Codeforces tasks: ${active.length} active, ${solved.length} đã AC`
+      : `📋 Codeforces tasks: ${active.length} active`,
     ...active.map(
       (task) =>
         `⏳ ${task.contestId}${task.index} - ${task.name} — ${formatRating(task.rating, task.ratingSource)}\n${taskService.problemUrl(task)}`
     ),
-    ...solved.map(
-      (task) =>
-        `✅ ${task.contestId}${task.index} - ${task.name} — ${formatRating(task.rating, task.ratingSource)}\n${taskService.problemUrl(task)}`
-    ),
+    ...(includeSolved
+      ? solved.map(
+          (task) =>
+            `✅ ${task.contestId}${task.index} - ${task.name} — ${formatRating(task.rating, task.ratingSource)}\n${taskService.problemUrl(task)}`
+        )
+      : []),
   ];
   return lines.join("\n");
 }
@@ -39,7 +50,7 @@ export function createTaskCommand(taskService: CodeforcesTaskServiceApi): Comman
         const query = rest.join(" ").trim();
         if (!query) {
           throw new ValidationError(
-            "Cú pháp: /task add <mã, URL hoặc đúng tên bài>, vd: /task add 4A"
+            "Cú pháp: /task add <problem>. Chỉ nhận bài có rating > 1600."
           );
         }
         const task = await taskService.addTask(ctx.message.telegramId, query);
@@ -51,11 +62,15 @@ export function createTaskCommand(taskService: CodeforcesTaskServiceApi): Comman
         );
       }
       if (sub === "list") {
+        const mode = rest[0]?.toLowerCase();
+        if (rest.length > 1 || (mode && mode !== "all")) {
+          throw new ValidationError("Cú pháp: /task list [all]");
+        }
         await taskService.refreshRatings(ctx.message.telegramId);
-        return formatTaskList(taskService, ctx.message.telegramId);
+        return formatTaskList(taskService, ctx.message.telegramId, mode === "all");
       }
 
-      throw new ValidationError("Cú pháp: /task add <problem>|list");
+      throw new ValidationError("Cú pháp: /task add <problem>|list [all]");
     },
   };
 }
