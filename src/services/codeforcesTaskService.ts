@@ -108,6 +108,15 @@ function parseProblemReference(query: string): { contestId: number; index: strin
   return { contestId: Number(shortMatch[1]), index: shortMatch[2].toUpperCase() };
 }
 
+/** Bulk mode intentionally accepts only an exact short ID or Codeforces URL, never a title. */
+export function isCodeforcesProblemIdOrUrl(value: string): boolean {
+  const trimmed = value.trim();
+  if (/^\d+(?:\/|-)?[a-z][a-z0-9]*$/i.test(trimmed)) return true;
+  return /^https?:\/\/(?:www\.)?codeforces\.com\/(?:contest\/\d+\/problem\/[a-z0-9]+|problemset\/problem\/\d+\/[a-z0-9]+)\/?(?:[?#].*)?$/i.test(
+    trimmed
+  );
+}
+
 function resolvePublicProblem(problems: readonly CodeforcesProblem[], query: string): CodeforcesProblem {
   const reference = parseProblemReference(query);
   let matches: CodeforcesProblem[];

@@ -1,4 +1,7 @@
-import { CodeforcesTaskServiceApi } from "../../services/codeforcesTaskService";
+import {
+  CodeforcesTaskServiceApi,
+  isCodeforcesProblemIdOrUrl,
+} from "../../services/codeforcesTaskService";
 import { AuthTier, CommandContext, CommandDefinition } from "../../types/command.types";
 import { ValidationError } from "../../utils/errors";
 import { FocusServiceApi } from "../../services/focusService";
@@ -47,6 +50,47 @@ export function createTaskCommand(taskService: CodeforcesTaskServiceApi): Comman
     handler: async (ctx: CommandContext): Promise<string> => {
       const [sub, ...rest] = ctx.effectiveArgs;
       if (sub === "add") {
+        if (rest[0]?.toLowerCase() === "bulk") {
+          const references = rest.slice(1);
+          if (references.length === 0) {
+            throw new ValidationError(
+              "Cú pháp: /task add bulk <problemId|url> [problemId|url]..."
+            );
+          }
+          const invalid = references.filter(
+            (reference) => !isCodeforcesProblemIdOrUrl(reference)
+          );
+          if (invalid.length > 0) {
+            throw new ValidationError(
+              `Bulk chỉ nhận problem ID hoặc URL Codeforces. Không hợp lệ: ${invalid.join(", ")}`
+            );
+          }
+
+          const added: string[] = [];
+          const failed: string[] = [];
+          // Phải chạy tuần tự vì mỗi addTask đọc rồi ghi cùng một JSON state.
+          for (const reference of references) {
+            try {
+              const task = await taskService.addTask(
+                ctx.message.telegramId,
+                reference
+              );
+              added.push(
+                `✅ ${task.contestId}${task.index} - ${task.name} — ${formatRating(task.rating, task.ratingSource)}`
+              );
+            } catch (error) {
+              const message =
+                error instanceof Error ? error.message.replace(/\s*\n\s*/g, " ") : String(error);
+              failed.push(`❌ ${reference}: ${message}`);
+            }
+          }
+          return [
+            `📦 Bulk add: ${added.length} thành công, ${failed.length} lỗi.`,
+            ...added,
+            ...failed,
+          ].join("\n");
+        }
+
         const query = rest.join(" ").trim();
         if (!query) {
           throw new ValidationError(
@@ -70,7 +114,9 @@ export function createTaskCommand(taskService: CodeforcesTaskServiceApi): Comman
         return formatTaskList(taskService, ctx.message.telegramId, mode === "all");
       }
 
-      throw new ValidationError("Cú pháp: /task add <problem>|list [all]");
+      throw new ValidationError(
+        "Cú pháp: /task add <problem>|add bulk <problemId|url>...|list [all]"
+      );
     },
   };
 }
