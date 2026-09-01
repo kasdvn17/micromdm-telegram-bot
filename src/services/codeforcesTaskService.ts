@@ -44,7 +44,7 @@ export interface RefreshResult {
 
 export interface DailyCodeforcesGateStatus {
   date: string;
-  dailyAcceptedCount: number;
+  focusOffAcceptedCount: number;
   acceptedSinceLastBreak: number;
   breakRequiredCount: number;
   focusOffRequiredCount: number;
@@ -52,20 +52,28 @@ export interface DailyCodeforcesGateStatus {
   focusOffAllowed: boolean;
 }
 
+export interface FocusOffGateOptions {
+  since?: string;
+  requiredCount?: number;
+}
+
 export interface CodeforcesTaskServiceApi {
   addTask(telegramId: number, problemQuery: string): Promise<CodeforcesTask>;
   listTasks(telegramId: number): CodeforcesTask[];
   refreshRatings(telegramId: number): Promise<number>;
   refresh(telegramId: number): Promise<RefreshResult>;
-  getDailyGateStatus(telegramId: number): DailyCodeforcesGateStatus;
+  getDailyGateStatus(
+    telegramId: number,
+    focusOffOptions?: FocusOffGateOptions
+  ): DailyCodeforcesGateStatus;
   assertBreakAllowed(telegramId: number): void;
   recordBreakStarted(telegramId: number): void;
-  assertFocusOffAllowed(telegramId: number): void;
+  assertFocusOffAllowed(telegramId: number, options?: FocusOffGateOptions): void;
   problemUrl(task: Pick<CodeforcesTask, "contestId" | "index">): string;
 }
 
-const BREAK_REQUIRED_NEW_AC = 3;
-const FOCUS_OFF_REQUIRED_DAILY_AC = 10;
+const BREAK_REQUIRED_NEW_AC = 1;
+const FOCUS_OFF_REQUIRED_DAILY_AC = 7;
 
 function localDateStr(date: Date): string {
   const year = date.getFullYear();
@@ -157,7 +165,8 @@ export function createCodeforcesTaskService(
   const getDailyGateStatus = (
     state: CodeforcesTaskState,
     telegramId: number,
-    now: Date = new Date()
+    now: Date = new Date(),
+    focusOffOptions: FocusOffGateOptions = {}
   ): DailyCodeforcesGateStatus => {
     const date = localDateStr(now);
     const userState = state.users[String(telegramId)];
@@ -174,21 +183,34 @@ export function createCodeforcesTaskService(
         Number.isFinite(solvedMs) &&
         Number.isFinite(addedMs) &&
         solvedMs >= addedMs &&
-        localDateStr(solvedAt) === date
+        solvedMs <= now.getTime()
       );
     });
-    const dailyAcceptedCount = eligibleTasks.length;
-    const acceptedSinceLastBreak = eligibleTasks.filter(
+    const dailyTasks = eligibleTasks.filter(
+      (task) => localDateStr(new Date(task.solvedAt!)) === date
+    );
+    const acceptedSinceLastBreak = dailyTasks.filter(
       (task) => new Date(task.solvedAt!).getTime() > lastBreakAt
     ).length;
+    const configuredSinceMs = focusOffOptions.since
+      ? new Date(focusOffOptions.since).getTime()
+      : Number.NaN;
+    const focusOffTasks = Number.isFinite(configuredSinceMs)
+      ? eligibleTasks.filter(
+          (task) => new Date(task.solvedAt!).getTime() >= configuredSinceMs
+        )
+      : dailyTasks;
+    const focusOffRequiredCount =
+      focusOffOptions.requiredCount ?? FOCUS_OFF_REQUIRED_DAILY_AC;
+    const focusOffAcceptedCount = focusOffTasks.length;
     return {
       date,
-      dailyAcceptedCount,
+      focusOffAcceptedCount,
       acceptedSinceLastBreak,
       breakRequiredCount: BREAK_REQUIRED_NEW_AC,
-      focusOffRequiredCount: FOCUS_OFF_REQUIRED_DAILY_AC,
+      focusOffRequiredCount,
       breakAllowed: acceptedSinceLastBreak >= BREAK_REQUIRED_NEW_AC,
-      focusOffAllowed: dailyAcceptedCount >= FOCUS_OFF_REQUIRED_DAILY_AC,
+      focusOffAllowed: focusOffAcceptedCount >= focusOffRequiredCount,
     };
   };
 
@@ -333,8 +355,11 @@ export function createCodeforcesTaskService(
       };
     },
 
-    getDailyGateStatus(telegramId: number): DailyCodeforcesGateStatus {
-      return getDailyGateStatus(readState(), telegramId);
+    getDailyGateStatus(
+      telegramId: number,
+      focusOffOptions?: FocusOffGateOptions
+    ): DailyCodeforcesGateStatus {
+      return getDailyGateStatus(readState(), telegramId, new Date(), focusOffOptions);
     },
 
     assertBreakAllowed(telegramId: number): void {
@@ -361,12 +386,12 @@ export function createCodeforcesTaskService(
       writeJsonState(filePath, state);
     },
 
-    assertFocusOffAllowed(telegramId: number): void {
-      const status = getDailyGateStatus(readState(), telegramId);
+    assertFocusOffAllowed(telegramId: number, options?: FocusOffGateOptions): void {
+      const status = getDailyGateStatus(readState(), telegramId, new Date(), options);
       if (status.focusOffAllowed) return;
       throw new ValidationError(
-        `Không thể tắt Focus: hôm nay mới xác nhận ${status.dailyAcceptedCount}/${status.focusOffRequiredCount} task AC hợp lệ.\n` +
-          `Hãy AC thêm ${status.focusOffRequiredCount - status.dailyAcceptedCount} task rồi dùng /refresh để cập nhật.`
+        `Không thể tắt Focus: mới xác nhận ${status.focusOffAcceptedCount}/${status.focusOffRequiredCount} task AC hợp lệ trong khoảng thời gian yêu cầu.\n` +
+          `Hãy AC thêm ${status.focusOffRequiredCount - status.focusOffAcceptedCount} task rồi dùng /refresh để cập nhật.`
       );
     },
 

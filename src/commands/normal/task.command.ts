@@ -1,6 +1,7 @@
 import { CodeforcesTaskServiceApi } from "../../services/codeforcesTaskService";
 import { AuthTier, CommandContext, CommandDefinition } from "../../types/command.types";
 import { ValidationError } from "../../utils/errors";
+import { FocusServiceApi } from "../../services/focusService";
 
 function formatRating(rating?: number, source?: string): string {
   if (!rating) return "Unrated";
@@ -60,14 +61,24 @@ export function createTaskCommand(taskService: CodeforcesTaskServiceApi): Comman
 }
 
 export function createRefreshCommand(
-  taskService: CodeforcesTaskServiceApi
+  taskService: CodeforcesTaskServiceApi,
+  focusService: Pick<FocusServiceApi, "status">
 ): CommandDefinition {
   return {
     name: "refresh",
     tier: AuthTier.Normal,
     handler: async (ctx: CommandContext): Promise<string> => {
       const result = await taskService.refresh(ctx.message.telegramId);
-      const gate = taskService.getDailyGateStatus(ctx.message.telegramId);
+      const focusStatus = focusService.status();
+      const inSleep =
+        focusStatus.sleepUnlock.withinTimeRange &&
+        !!focusStatus.sleepUnlock.sessionStartedAt;
+      const gate = taskService.getDailyGateStatus(
+        ctx.message.telegramId,
+        inSleep
+          ? { since: focusStatus.sleepUnlock.sessionStartedAt, requiredCount: 3 }
+          : { requiredCount: 7 }
+      );
       const active = result.tasks.filter((task) => task.status === "active");
       const lines = [
         result.newlySolved.length > 0
@@ -79,7 +90,7 @@ export function createRefreshCommand(
           ? `📊 Đã cập nhật difficulty cho ${result.ratingsUpdated} task.`
           : "📊 Difficulty không có thay đổi.",
         `☕ Break kế tiếp: ${gate.acceptedSinceLastBreak}/${gate.breakRequiredCount} bài AC mới${gate.breakAllowed ? " — đã mở khóa." : "."}`,
-        `📅 Focus off: ${gate.dailyAcceptedCount}/${gate.focusOffRequiredCount} task AC hôm nay${gate.focusOffAllowed ? " — đã mở khóa." : "."}`,
+        `${inSleep ? "🌙 Từ lúc Sleep bắt đầu" : "📅 Hôm nay"}: ${gate.focusOffAcceptedCount}/${gate.focusOffRequiredCount} task AC cho Focus off${gate.focusOffAllowed ? " — đã mở khóa." : "."}`,
         active.length === 0
           ? "✅ Không còn task active."
           : `⏳ Còn ${active.length} task chưa AC: ${active

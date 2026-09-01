@@ -56,11 +56,11 @@ export class FocusScheduler {
    * Sleep Mode: khung giờ CỐ ĐỊNH, hardcode (KHÔNG cấu hình qua lệnh/JSON
    * như recurring schedule thường), qua đêm (22:00 -> 05:00 sáng hôm sau).
    * Mặc định không thể tắt. Việc mở khóa `/focus off` được command layer xác
-   * nhận bằng 10 task Codeforces AC hợp lệ trong ngày rồi force-disable đúng phiên.
+   * nhận bằng 3 task Codeforces AC hợp lệ từ lúc phiên bắt đầu rồi force-disable.
    */
   static readonly SLEEP_START = "22:00";
   static readonly SLEEP_END = "05:00";
-  static readonly SLEEP_UNLOCK_REQUIRED_AC = 10;
+  static readonly SLEEP_UNLOCK_REQUIRED_AC = 3;
 
   private tickHandle: NodeJS.Timeout | null = null;
   private readonly firedRecurringToday = new Set<string>(); // key: `${scheduleId}:${dateStr}:${start|end}`

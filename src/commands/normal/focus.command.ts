@@ -6,6 +6,12 @@ import { CodeforcesTaskServiceApi } from "../../services/codeforcesTaskService";
 
 const DAY_NAMES = ["CN", "T2", "T3", "T4", "T5", "T6", "T7"];
 
+function focusOffGateOptions(status: ReturnType<FocusServiceApi["status"]>) {
+  return status.sleepUnlock.withinTimeRange && status.sleepUnlock.sessionStartedAt
+    ? { since: status.sleepUnlock.sessionStartedAt, requiredCount: 3 }
+    : { requiredCount: 7 };
+}
+
 export function createFocusCommand(
   focusService: FocusServiceApi,
   codeforcesTasks?: Pick<
@@ -29,7 +35,11 @@ export function createFocusCommand(
 
         case "off":
           {
-            codeforcesTasks?.assertFocusOffAllowed(ctx.message.telegramId);
+            const status = focusService.status();
+            codeforcesTasks?.assertFocusOffAllowed(
+              ctx.message.telegramId,
+              focusOffGateOptions(status)
+            );
             const result = await focusService.disable(!!codeforcesTasks);
             if (result.sleepModeDisabled) {
               return result.focusStillActive
@@ -42,16 +52,19 @@ export function createFocusCommand(
         case "status": {
           const status = focusService.status();
           const remaining = focusService.breakUsageRemainingToday();
-          const gate = codeforcesTasks?.getDailyGateStatus(ctx.message.telegramId);
+          const gate = codeforcesTasks?.getDailyGateStatus(
+            ctx.message.telegramId,
+            focusOffGateOptions(status)
+          );
           const codeforcesInfo = gate
-            ? `\nCodeforces tasks: ${gate.acceptedSinceLastBreak}/${gate.breakRequiredCount} task mới cho break; ${gate.dailyAcceptedCount}/${gate.focusOffRequiredCount} task hôm nay cho /focus off.`
+            ? `\nCodeforces tasks: ${gate.acceptedSinceLastBreak}/${gate.breakRequiredCount} task mới cho break; ${gate.focusOffAcceptedCount}/${gate.focusOffRequiredCount} task cho /focus off.`
             : "";
           const breakInfo = `\nBreak còn lại hôm nay: ${remaining.breaksRemaining} lần / ${formatDuration(remaining.totalMsRemaining)}.${codeforcesInfo}`;
           if (status.sleepUnlock.withinTimeRange && status.sleepUnlock.disabled) {
             return `🌙 Sleep Mode đã được TẮT cho phiên hôm nay.${breakInfo}`;
           }
           if (status.withinSleep) {
-            return `😴 Đang trong Sleep Mode (22:00 - 05:00). Cần đủ 10 task AC hợp lệ trong ngày và /refresh để dùng /focus off.${breakInfo}`;
+            return `😴 Đang trong Sleep Mode (22:00 - 05:00). Cần đủ 3 task AC từ lúc Sleep bắt đầu và /refresh để dùng /focus off.${breakInfo}`;
           }
           if (status.onBreak) {
             return `🎯 Focus đang TẠM NGƯNG (break) - còn ${formatDuration(status.breakRemainingMs ?? 0)}, sẽ tự bật lại nếu vẫn trong khung giờ schedule.${breakInfo}`;
