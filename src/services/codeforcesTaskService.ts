@@ -179,11 +179,8 @@ export function createCodeforcesTaskService(
       if (task.status !== "solved" || !task.solvedAt) return false;
       const solvedAt = new Date(task.solvedAt);
       const solvedMs = solvedAt.getTime();
-      const addedMs = new Date(task.addedAt).getTime();
       return (
         Number.isFinite(solvedMs) &&
-        Number.isFinite(addedMs) &&
-        solvedMs >= addedMs &&
         solvedMs <= now.getTime()
       );
     });
@@ -382,7 +379,7 @@ export function createCodeforcesTaskService(
       throw new ValidationError(
         `Không thể break: mới xác nhận ${status.acceptedSinceLastBreak}/${status.breakRequiredCount} task AC mới kể từ lần break gần nhất.\n` +
           `Hãy AC thêm ${status.breakRequiredCount - status.acceptedSinceLastBreak} bài rồi dùng /refresh để cập nhật. ` +
-          "Chỉ task được thêm vào danh sách trước khi AC mới được tính."
+          "Bài phải nằm trong task list và được /refresh xác nhận."
       );
     },
 

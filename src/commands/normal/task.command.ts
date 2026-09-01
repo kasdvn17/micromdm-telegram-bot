@@ -58,7 +58,7 @@ export function createTaskCommand(taskService: CodeforcesTaskServiceApi): Comman
           `➕ Đã thêm task ${task.contestId}${task.index} - ${task.name}.\n` +
           `Difficulty: ${formatRating(task.rating, task.ratingSource)}\n` +
           `${taskService.problemUrl(task)}\n` +
-          "Task phải được thêm trước khi AC thì mới được tính cho /focus break và /focus off."
+          "Nếu bài đã AC trước khi thêm, /refresh vẫn dùng submission OK đầu tiên để tính gate."
         );
       }
       if (sub === "list") {
