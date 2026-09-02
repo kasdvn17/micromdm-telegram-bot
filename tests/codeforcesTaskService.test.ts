@@ -1,13 +1,11 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { Response } from "node-fetch";
 import { createCodeforcesTaskService } from "../src/services/codeforcesTaskService";
 import { CodeforcesClient } from "../src/utils/codeforces";
-
-process.env.STATE_STORAGE = "json";
 
 function fixture(state: unknown): { filePath: string; cleanup: () => void } {
   const dir = mkdtempSync(path.join(tmpdir(), "micromdm-cf-test-"));
@@ -102,38 +100,6 @@ test("archiving solved tasks preserves their gate contribution", () => {
     assert.equal(service.archiveSolvedTasks(42), 1);
     assert.equal(service.getDailyGateStatus(42).acceptedSinceLastBreak, 1);
   } finally {
-    data.cleanup();
-  }
-});
-
-test("SQLite storage lazily imports legacy JSON and keeps it as backup", () => {
-  const data = fixture({
-    users: {
-      "42": {
-        tasks: [
-          {
-            contestId: 4,
-            index: "A",
-            name: "Watermelon",
-            status: "active",
-            addedAt: "2026-09-01T00:00:00.000Z",
-          },
-        ],
-      },
-    },
-  });
-  const legacyBefore = readFileSync(data.filePath, "utf8");
-  process.env.STATE_STORAGE = "sqlite";
-  process.env.STATE_DATABASE_PATH = path.join(path.dirname(data.filePath), "state.sqlite");
-  try {
-    const service = createCodeforcesTaskService(data.filePath, "tourist");
-    assert.equal(service.listTasks(42)[0].name, "Watermelon");
-    service.editTaskTag(42, "4A", "add", "implementation");
-    assert.deepEqual(service.listTasks(42)[0].tags, ["implementation"]);
-    assert.equal(readFileSync(data.filePath, "utf8"), legacyBefore);
-  } finally {
-    process.env.STATE_STORAGE = "json";
-    delete process.env.STATE_DATABASE_PATH;
     data.cleanup();
   }
 });

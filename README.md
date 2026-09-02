@@ -165,7 +165,7 @@ Các nguồn Focus dùng chung một profile và được tính theo kiểu refe
 
 ### Yêu cầu
 
-- Node.js >= 22.13 (dùng `node:sqlite`).
+- Bun hoặc Node.js >= 18.
 - MicroMDM đang chạy và có APNs push certificate hợp lệ.
 - Telegram Bot tạo bằng BotFather.
 - Thiết bị iOS đã Supervised và enrolled vào MicroMDM.
@@ -248,9 +248,7 @@ Bot gửi một câu trong danh sách cục bộ sau mỗi 60 phút kể từ l�
 
 ## Dữ liệu
 
-Bot mặc định lưu state trong SQLite (`data/state.sqlite`, WAL). Khi một state key được đọc lần đầu, JSON cũ tương ứng được import tự động và file cũ vẫn được giữ làm backup. Có thể tạm quay về JSON bằng `STATE_STORAGE=json`.
-
-Các file JSON legacy gồm:
+Bot lưu trạng thái bằng JSON trong `data/`, gồm:
 
 - `blacklist.json` — app blacklist.
 - `restricted-apps.json` — app bị chặn bởi Focus/Safe Mode.
