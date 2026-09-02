@@ -6,12 +6,22 @@ import {
 import { CommandResponse } from "../types/command.types";
 import { formatError } from "./replyFormatter";
 import { getLogger } from "../utils/logger";
-import { createHash } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 
 const PAGE_SIZE = 8;
 const CALLBACK_PREFIX = "cft";
 const REPLY_MARKER = "TAGEDIT";
 const CREATE_TAG_MARKER = "TAGCREATE";
+const BULK_TAG_CREATE_MARKER = "BULKTAGCREATE";
+const BULK_TAG_TTL_MS = 15 * 60 * 1000;
+
+interface BulkTagSession {
+  telegramId: number;
+  problemIds: string[];
+  expiresAt: number;
+}
+
+const bulkTagSessions = new Map<string, BulkTagSession>();
 
 function problemId(task: Pick<CodeforcesTask, "contestId" | "index">): string {
   return `${task.contestId}${task.index}`;
@@ -33,6 +43,92 @@ function resolveTagToken(
   const tag = taskService.listTags(telegramId).find((value) => tagToken(value) === token);
   if (!tag) throw new Error("Tag không còn tồn tại.");
   return tag;
+}
+
+function createBulkTagSession(
+  telegramId: number,
+  tasks: readonly Pick<CodeforcesTask, "contestId" | "index">[]
+): string {
+  const now = Date.now();
+  for (const [token, session] of bulkTagSessions) {
+    if (session.expiresAt <= now) bulkTagSessions.delete(token);
+  }
+  const token = randomBytes(6).toString("hex");
+  bulkTagSessions.set(token, {
+    telegramId,
+    problemIds: [...new Set(tasks.map(problemId))],
+    expiresAt: now + BULK_TAG_TTL_MS,
+  });
+  return token;
+}
+
+function getBulkTagSession(token: string, telegramId: number): BulkTagSession {
+  const session = bulkTagSessions.get(token);
+  if (!session || session.telegramId !== telegramId || session.expiresAt <= Date.now()) {
+    bulkTagSessions.delete(token);
+    throw new Error("Phiên gắn tag đã hết hạn. Hãy chạy lại /task add bulk.");
+  }
+  return session;
+}
+
+function assignBulkTag(
+  taskService: CodeforcesTaskServiceApi,
+  telegramId: number,
+  session: BulkTagSession,
+  tag: string
+): { assigned: number; failed: number } {
+  let assigned = 0;
+  let failed = 0;
+  for (const id of session.problemIds) {
+    try {
+      taskService.editTaskTag(telegramId, id, "add", tag);
+      assigned += 1;
+    } catch {
+      failed += 1;
+    }
+  }
+  return { assigned, failed };
+}
+
+export function buildBulkTagPrompt(
+  summaryText: string,
+  telegramId: number,
+  tasks: readonly Pick<CodeforcesTask, "contestId" | "index">[]
+): CommandResponse {
+  if (tasks.length === 0) return summaryText;
+  const token = createBulkTagSession(telegramId, tasks);
+  return {
+    text: `${summaryText}\n\n🏷 Gắn ${tasks.length} bài vừa thêm vào cùng một tag?`,
+    options: {
+      reply_markup: {
+        inline_keyboard: [[
+          { text: "Yes", callback_data: `${CALLBACK_PREFIX}:by:${token}` },
+          { text: "No", callback_data: `${CALLBACK_PREFIX}:bn:${token}` },
+        ]],
+      },
+    },
+  };
+}
+
+function bulkTagSelector(
+  taskService: CodeforcesTaskServiceApi,
+  telegramId: number,
+  token: string,
+  taskCount: number
+): { text: string; reply_markup: TelegramBot.InlineKeyboardMarkup } {
+  const tags = taskService.listTags(telegramId);
+  return {
+    text: `🏷 Chọn tag cho ${taskCount} bài vừa thêm:`,
+    reply_markup: {
+      inline_keyboard: [
+        ...tags.map((tag) => [{
+          text: `#${tag}`,
+          callback_data: `${CALLBACK_PREFIX}:bt:${token}:${tagToken(tag)}`,
+        }]),
+        [{ text: "➕ Tạo tag mới", callback_data: `${CALLBACK_PREFIX}:bc:${token}` }],
+      ],
+    },
+  };
 }
 
 function tagEditor(
@@ -247,6 +343,52 @@ export function attachTaskTagInteraction(
           await bot.answerCallbackQuery(query.id);
           return;
         }
+        if (["by", "bn", "bt", "bc"].includes(action)) {
+          const sessionToken = parts[2];
+          const session = getBulkTagSession(sessionToken, telegramId);
+          if (action === "bn") {
+            bulkTagSessions.delete(sessionToken);
+            await bot.editMessageText(`${message.text ?? "📦 Bulk add hoàn tất."}\n\nĐã bỏ qua gắn tag.`, {
+              chat_id: message.chat.id,
+              message_id: message.message_id,
+            });
+            await bot.answerCallbackQuery(query.id, { text: "Đã hủy gắn tag." });
+            return;
+          }
+          if (action === "by") {
+            const result = bulkTagSelector(
+              taskService,
+              telegramId,
+              sessionToken,
+              session.problemIds.length
+            );
+            await bot.editMessageText(result.text, {
+              chat_id: message.chat.id,
+              message_id: message.message_id,
+              reply_markup: result.reply_markup,
+            });
+            await bot.answerCallbackQuery(query.id);
+            return;
+          }
+          if (action === "bc") {
+            await bot.sendMessage(
+              message.chat.id,
+              `${BULK_TAG_CREATE_MARKER} ${sessionToken}\nNhập tên tag mới cho ${session.problemIds.length} bài (1-24 ký tự, không có khoảng trắng):`,
+              { reply_markup: { force_reply: true, selective: true } }
+            );
+            await bot.answerCallbackQuery(query.id);
+            return;
+          }
+          const tag = resolveTagToken(taskService, telegramId, parts[3]);
+          const result = assignBulkTag(taskService, telegramId, session, tag);
+          bulkTagSessions.delete(sessionToken);
+          await bot.editMessageText(
+            `🏷 Đã gắn #${tag} cho ${result.assigned} bài.${result.failed ? ` ${result.failed} bài không còn trong task list.` : ""}`,
+            { chat_id: message.chat.id, message_id: message.message_id }
+          );
+          await bot.answerCallbackQuery(query.id, { text: "Đã gắn tag." });
+          return;
+        }
         if (action === "p") {
           const result = picker(taskService, telegramId, Number(parts[2]));
           if (result) {
@@ -351,6 +493,25 @@ export function attachTaskTagInteraction(
   bot.on("message", (msg) => {
     void (async () => {
       const prompt = msg.reply_to_message?.text;
+      const bulkCreateMatch = prompt?.match(new RegExp(`^${BULK_TAG_CREATE_MARKER}\\s+([a-f0-9]+)`));
+      if (bulkCreateMatch && msg.text && isAuthorized(msg.from?.username)) {
+        try {
+          const sessionToken = bulkCreateMatch[1];
+          const session = getBulkTagSession(sessionToken, msg.from!.id);
+          const requestedTag = msg.text.trim().replace(/^#/, "").toLocaleLowerCase();
+          const tag = taskService.listTags(msg.from!.id).find((value) => value === requestedTag)
+            ?? taskService.createTag(msg.from!.id, msg.text);
+          const result = assignBulkTag(taskService, msg.from!.id, session, tag);
+          bulkTagSessions.delete(sessionToken);
+          await bot.sendMessage(
+            msg.chat.id,
+            `🏷 Đã gắn #${tag} cho ${result.assigned} bài.${result.failed ? ` ${result.failed} bài không còn trong task list.` : ""}`
+          );
+        } catch (error) {
+          await bot.sendMessage(msg.chat.id, formatError(error as Error));
+        }
+        return;
+      }
       if (prompt?.startsWith(CREATE_TAG_MARKER) && msg.text && isAuthorized(msg.from?.username)) {
         try {
           const tag = taskService.createTag(msg.from!.id, msg.text);

@@ -11,6 +11,7 @@ import {
 import { ValidationError } from "../../utils/errors";
 import { FocusServiceApi } from "../../services/focusService";
 import {
+  buildBulkTagPrompt,
   buildCreateTagPrompt,
   buildTagEditorReply,
   buildTagRemoveReply,
@@ -103,13 +104,15 @@ export function createTaskCommand(
 
           if (atomic) {
             const tasks = await taskService.addTasksAtomic(ctx.message.telegramId, references);
-            return [
+            const summary = [
               `📦 Atomic bulk: đã thêm đủ ${tasks.length}/${references.length} task.`,
               ...tasks.map((task) => `✅ ${task.contestId}${task.index} - ${task.name} — ${formatRating(task.rating, task.ratingSource)}`),
             ].join("\n");
+            return buildBulkTagPrompt(summary, ctx.message.telegramId, tasks);
           }
 
           const added: string[] = [];
+          const addedTasks = [];
           const failed: string[] = [];
           // Phải chạy tuần tự vì mỗi addTask đọc rồi ghi cùng một JSON state.
           for (const reference of references) {
@@ -121,17 +124,19 @@ export function createTaskCommand(
               added.push(
                 `✅ ${task.contestId}${task.index} - ${task.name} — ${formatRating(task.rating, task.ratingSource)}`
               );
+              addedTasks.push(task);
             } catch (error) {
               const message =
                 error instanceof Error ? error.message.replace(/\s*\n\s*/g, " ") : String(error);
               failed.push(`❌ ${reference}: ${message}`);
             }
           }
-          return [
+          const summary = [
             `📦 Bulk add: ${added.length} thành công, ${failed.length} lỗi.`,
             ...added,
             ...failed,
           ].join("\n");
+          return buildBulkTagPrompt(summary, ctx.message.telegramId, addedTasks);
         }
 
         const query = rest.join(" ").trim();

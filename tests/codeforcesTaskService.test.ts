@@ -7,10 +7,29 @@ import { Response } from "node-fetch";
 import { createCodeforcesTaskService } from "../src/services/codeforcesTaskService";
 import { CodeforcesClient } from "../src/utils/codeforces";
 import {
+  buildBulkTagPrompt,
   buildTagEditorReply,
   buildTagRemoveReply,
   buildTaskTagPickerReply,
 } from "../src/telegram/taskTagInteraction";
+
+test("bulk tag prompt offers yes and no only when tasks were added", () => {
+  const reply = buildBulkTagPrompt("📦 Done", 42, [
+    { contestId: 2000, index: "A" },
+    { contestId: 2001, index: "B" },
+  ]);
+  assert.notEqual(typeof reply, "string");
+  if (typeof reply !== "string") {
+    const keyboard = reply.options?.reply_markup;
+    assert.ok(keyboard && "inline_keyboard" in keyboard);
+    if (keyboard && "inline_keyboard" in keyboard) {
+      assert.deepEqual(keyboard.inline_keyboard[0].map((button) => button.text), ["Yes", "No"]);
+      assert.match(keyboard.inline_keyboard[0][0].callback_data ?? "", /^cft:by:/);
+      assert.match(keyboard.inline_keyboard[0][1].callback_data ?? "", /^cft:bn:/);
+    }
+  }
+  assert.equal(buildBulkTagPrompt("📦 No task", 42, []), "📦 No task");
+});
 
 function fixture(state: unknown): { filePath: string; cleanup: () => void } {
   const dir = mkdtempSync(path.join(tmpdir(), "micromdm-cf-test-"));
