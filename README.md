@@ -76,6 +76,8 @@ Emergency không yêu cầu đúng username; vì vậy `EMERGENCY_PASSWORD` ph�
 
 ```
 
+`/task tagedit` mở inline keyboard có phân trang. Chọn một problem để gán tag mới bằng Force Reply, gỡ từng tag hoặc xóa toàn bộ tags. Các cú pháp `/task tagedit <problemId> ...` vẫn dùng được khi cần nhập trực tiếp.
+
 ### Emergency
 
 Cú pháp chung:

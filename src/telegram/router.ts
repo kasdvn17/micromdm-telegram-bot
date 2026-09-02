@@ -95,12 +95,14 @@ export function createRouter(
     };
 
     try {
-      const reply = await definition.handler(ctx);
+      const response = await definition.handler(ctx);
+      const reply =
+        typeof response === "string" ? { text: response } : response;
       // Telegram giới hạn 4096 ký tự cho 1 tin nhắn, nếu reply quá dài thì cắt làm nhiều tin nhắn
-      if (reply.length <= 4096) {
-        await bot.sendMessage(message.chatId, reply);
+      if (reply.text.length <= 4096) {
+        await bot.sendMessage(message.chatId, reply.text, reply.options);
       } else {
-        const chunks = reply.match(/.{1,4096}/gs) ?? [];
+        const chunks = reply.text.match(/.{1,4096}/gs) ?? [];
         for (const chunk of chunks) {
           await bot.sendMessage(message.chatId, chunk);
         }

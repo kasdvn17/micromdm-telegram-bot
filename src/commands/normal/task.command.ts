@@ -2,9 +2,15 @@ import {
   CodeforcesTaskServiceApi,
   isCodeforcesProblemIdOrUrl,
 } from "../../services/codeforcesTaskService";
-import { AuthTier, CommandContext, CommandDefinition } from "../../types/command.types";
+import {
+  AuthTier,
+  CommandContext,
+  CommandDefinition,
+  CommandResponse,
+} from "../../types/command.types";
 import { ValidationError } from "../../utils/errors";
 import { FocusServiceApi } from "../../services/focusService";
+import { buildTaskTagPickerReply } from "../../telegram/taskTagInteraction";
 
 function formatRating(rating?: number, source?: string): string {
   if (!rating) return "Unrated";
@@ -64,7 +70,7 @@ export function createTaskCommand(
   return {
     name: "task",
     tier: AuthTier.Normal,
-    handler: async (ctx: CommandContext): Promise<string> => {
+    handler: async (ctx: CommandContext): Promise<CommandResponse> => {
       const [sub, ...rest] = ctx.effectiveArgs;
       if (sub === "add") {
         if (rest[0]?.toLowerCase() === "bulk") {
@@ -159,19 +165,7 @@ export function createTaskCommand(
       }
       if (sub === "tagedit") {
         if (rest.length === 0) {
-          const tasks = taskService.listTasks(ctx.message.telegramId);
-          if (tasks.length === 0) return "📋 Chưa có task Codeforces nào để gắn tag.";
-          return [
-            "🏷 Chọn problem ID dưới đây rồi gán tag:",
-            ...tasks.map((task) => {
-              const tags = (task.tags ?? []).map((tag) => `#${tag}`).join(" ") || "chưa có tag";
-              return `• ${task.contestId}${task.index} — ${task.name} — ${tags}`;
-            }),
-            "",
-            "Gán: /task tagedit <problemId> <tag>",
-            "Gỡ: /task tagedit <problemId> remove <tag>",
-            "Xóa hết: /task tagedit <problemId> clear",
-          ].join("\n");
+          return buildTaskTagPickerReply(taskService, ctx.message.telegramId);
         }
         const [problemReference, operationOrTag, ...tagParts] = rest;
         let action: "add" | "remove" | "clear" = "add";

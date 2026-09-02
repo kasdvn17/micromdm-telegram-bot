@@ -46,10 +46,15 @@ export interface CommandContext {
   effectiveArgs: string[];
 }
 
-export type CommandHandler = (ctx: CommandContext) => Promise<string>;
+export type CommandResponse =
+  | string
+  | { text: string; options?: TelegramBot.SendMessageOptions };
+
+export type CommandHandler = (ctx: CommandContext) => Promise<CommandResponse>;
 
 export interface CommandDefinition {
   name: string;
   tier: AuthTier;
   handler: CommandHandler;
 }
+import type TelegramBot from "node-telegram-bot-api";

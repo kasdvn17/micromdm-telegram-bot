@@ -31,7 +31,7 @@ Quy ước: lệnh Emergency/Two-Factor đặt password ngay sau tên lệnh:
 /task list all — xem cả task đã AC
 /task list [all] [tag] — lọc và nhóm task theo tag
 /task list archived [tag] — xem task đã archive
-/task tagedit — xem problem list và tags
+/task tagedit — chỉnh tags bằng inline keyboard
 /task tagedit <id> <tag> — gán tag cho task
 /task tagedit <id> remove <tag>|clear — gỡ tag
 /task remove <id> — xóa task active

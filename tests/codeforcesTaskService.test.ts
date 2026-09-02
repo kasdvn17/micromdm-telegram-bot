@@ -6,6 +6,7 @@ import test from "node:test";
 import { Response } from "node-fetch";
 import { createCodeforcesTaskService } from "../src/services/codeforcesTaskService";
 import { CodeforcesClient } from "../src/utils/codeforces";
+import { buildTaskTagPickerReply } from "../src/telegram/taskTagInteraction";
 
 function fixture(state: unknown): { filePath: string; cleanup: () => void } {
   const dir = mkdtempSync(path.join(tmpdir(), "micromdm-cf-test-"));
@@ -196,6 +197,31 @@ test("refresh stores earliest AC then switches to incremental submission sync", 
     const second = await service.refresh(42);
     assert.equal(second.syncMode, "incremental");
     assert.deepEqual(userStatusCounts, ["100", "1000"]);
+  } finally {
+    data.cleanup();
+  }
+});
+
+test("interactive tag picker paginates task buttons", () => {
+  const tasks = Array.from({ length: 10 }, (_, index) => ({
+    contestId: 2000 + index,
+    index: "A",
+    name: `Problem ${index}`,
+    status: "active",
+    addedAt: "2026-09-02T00:00:00.000Z",
+  }));
+  const data = fixture({ users: { "42": { tasks } } });
+  try {
+    const service = createCodeforcesTaskService(data.filePath, "tourist");
+    const reply = buildTaskTagPickerReply(service, 42);
+    assert.notEqual(typeof reply, "string");
+    if (typeof reply === "string") return;
+    const keyboard = reply.options?.reply_markup;
+    assert.ok(keyboard && "inline_keyboard" in keyboard);
+    if (!keyboard || !("inline_keyboard" in keyboard)) return;
+    assert.equal(keyboard.inline_keyboard.length, 9);
+    assert.match(keyboard.inline_keyboard[0][0].callback_data ?? "", /^cft:s:0:/);
+    assert.ok(keyboard.inline_keyboard[8].some((button) => button.text === "1/2"));
   } finally {
     data.cleanup();
   }

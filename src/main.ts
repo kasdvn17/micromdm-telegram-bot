@@ -23,6 +23,7 @@ import { createDeviceInfoPoller } from "./scheduler/deviceInfoPoller";
 import { createQuoteScheduler } from "./scheduler/quoteScheduler";
 import { createBot } from "./telegram/bot";
 import { createRouter } from "./telegram/router";
+import { attachTaskTagInteraction } from "./telegram/taskTagInteraction";
 import { startWebhookServer } from "./enrollment/webhookServer";
 import { CommandDefinition } from "./types/command.types";
 
@@ -268,6 +269,11 @@ async function main(): Promise<void> {
     config.secrets.authorizedTelegramUsername,
     emergencyAuthService,
     bus
+  );
+  attachTaskTagInteraction(
+    bot,
+    codeforcesTaskService,
+    config.secrets.authorizedTelegramUsername
   );
 
   bot.on("message", (msg) => {
