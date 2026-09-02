@@ -49,9 +49,11 @@ Emergency không yêu cầu đúng username; vì vậy `EMERGENCY_PASSWORD` ph�
 /task add <problem>
 /task add bulk <problemId|url>... [--atomic]
 /task list [all|archived] [tag]
-/task tagedit
-/task tagedit <problemId> <tag>
-/task tagedit <problemId> remove <tag>|clear
+/task tag add [tag]
+/task tag edit [tag]
+/task tag remove [tag] [problemId]
+/task tag list
+/task tagedit ... # tương thích cú pháp cũ
 /task remove <problemId>
 /task clear [tag] CONFIRM
 /task archive [problemId]
@@ -76,7 +78,7 @@ Emergency không yêu cầu đúng username; vì vậy `EMERGENCY_PASSWORD` ph�
 
 ```
 
-`/task tagedit` mở inline keyboard có phân trang. Chọn một problem để gán tag mới bằng Force Reply, gỡ từng tag hoặc xóa toàn bộ tags. Các cú pháp `/task tagedit <problemId> ...` vẫn dùng được khi cần nhập trực tiếp.
+`/task tag list` liệt kê theo quan hệ problem → tags. `/task tag edit <tag>` mở toàn bộ problem với dấu `✅/❌`; bấm vào problem để toggle tag. `/task tag remove <tag>` cho phép gỡ riêng từng problem hoặc xóa tag khỏi toàn bộ problem. `/task tag add` dùng Force Reply để tạo tag rỗng rồi mở ngay màn hình edit. `/task tagedit` cũ vẫn được giữ để tương thích.
 
 ### Emergency
 
@@ -240,7 +242,7 @@ const difficulty = await getCodeforcesProblemRating(4, "A");
 
 `getCodeforcesProblemRating()` ưu tiên rating chính thức từ Codeforces. Nếu API chưa có rating, hàm dùng dataset JSON công khai của [Codeforces Problems](https://github.com/kira924age/CodeforcesProblems), cache 24 giờ và trả nguồn `kira`; nếu cả hai nguồn đều thiếu thì trả `source: "unrated"`. `/task add` và `/task list` cũng hiển thị difficulty kèm nguồn.
 
-Đặt `CODEFORCES_HANDLE` trong `.env`, sau đó dùng `/task add <problem>` (hỗ trợ mã, URL hoặc đúng tên bài). `/task add bulk` nhận mã/URL cách nhau bằng khoảng trắng hoặc dấu phẩy; thêm `--atomic` để nếu một bài lỗi thì không thêm bài nào. Chỉ bài có rating xác định và **từ 1600 trở lên** mới được thêm; rating chính thức và rating external Kira đều hợp lệ. Task hỗ trợ nhiều tag qua `/task tagedit`; `/task list` chỉ hiện task active chưa archive, còn `all` hiện cả task đã AC. Bài đã AC trước khi `/task add` vẫn được tính bình thường. `/refresh` dùng cache tăng dần; `/refresh full` hoặc full-sync tự động mỗi 24 giờ sẽ quét toàn bộ lịch sử. `solvedAt` luôn lấy submission `OK` đầu tiên, không lấy thời điểm refresh. Mỗi lần `/focus break` cần 1 task có `solvedAt` sau lần break trước. Ngoài Sleep Mode, `/focus off` cần 7 task có `solvedAt` trong ngày hiện tại; trong Sleep Mode, cần 3 task có `solvedAt` từ lúc phiên bắt đầu.
+Đặt `CODEFORCES_HANDLE` trong `.env`, sau đó dùng `/task add <problem>` (hỗ trợ mã, URL hoặc đúng tên bài). `/task add bulk` nhận mã/URL cách nhau bằng khoảng trắng hoặc dấu phẩy; thêm `--atomic` để nếu một bài lỗi thì không thêm bài nào. Chỉ bài có rating xác định và **từ 1600 trở lên** mới được thêm; rating chính thức và rating external Kira đều hợp lệ. Mỗi problem có thể chứa nhiều tag qua `/task tag`; `/task list` chỉ hiện task active chưa archive, còn `all` hiện cả task đã AC. Bài đã AC trước khi `/task add` vẫn được tính bình thường. `/refresh` dùng cache tăng dần; `/refresh full` hoặc full-sync tự động mỗi 24 giờ sẽ quét toàn bộ lịch sử. `solvedAt` luôn lấy submission `OK` đầu tiên, không lấy thời điểm refresh. Mỗi lần `/focus break` cần 1 task có `solvedAt` sau lần break trước. Ngoài Sleep Mode, `/focus off` cần 7 task có `solvedAt` trong ngày hiện tại; trong Sleep Mode, cần 3 task có `solvedAt` từ lúc phiên bắt đầu.
 
 Trong Sleep Mode (22:00–05:00), `/focus off` đếm từ đúng 22:00 của phiên, kể cả sau khi qua nửa đêm, và tắt Sleep Mode cho phần còn lại của phiên hiện tại. Gate ngoài Sleep tự reset khi sang ngày mới.
 

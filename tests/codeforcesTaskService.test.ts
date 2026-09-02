@@ -6,7 +6,11 @@ import test from "node:test";
 import { Response } from "node-fetch";
 import { createCodeforcesTaskService } from "../src/services/codeforcesTaskService";
 import { CodeforcesClient } from "../src/utils/codeforces";
-import { buildTaskTagPickerReply } from "../src/telegram/taskTagInteraction";
+import {
+  buildTagEditorReply,
+  buildTagRemoveReply,
+  buildTaskTagPickerReply,
+} from "../src/telegram/taskTagInteraction";
 
 function fixture(state: unknown): { filePath: string; cleanup: () => void } {
   const dir = mkdtempSync(path.join(tmpdir(), "micromdm-cf-test-"));
@@ -222,6 +226,46 @@ test("interactive tag picker paginates task buttons", () => {
     assert.equal(keyboard.inline_keyboard.length, 9);
     assert.match(keyboard.inline_keyboard[0][0].callback_data ?? "", /^cft:s:0:/);
     assert.ok(keyboard.inline_keyboard[8].some((button) => button.text === "1/2"));
+  } finally {
+    data.cleanup();
+  }
+});
+
+test("tag registry supports empty tags, editor states and global removal", () => {
+  const data = fixture({
+    users: {
+      "42": {
+        tasks: [
+          { contestId: 2000, index: "A", name: "One", status: "active", addedAt: "2026-09-02T00:00:00.000Z", tags: ["dp"] },
+          { contestId: 2001, index: "B", name: "Two", status: "active", addedAt: "2026-09-02T00:00:00.000Z" },
+        ],
+      },
+    },
+  });
+  try {
+    const service = createCodeforcesTaskService(data.filePath, "tourist");
+    assert.deepEqual(service.listTags(42), ["dp"]);
+    assert.throws(() => service.createTag(42, "dp"), /đã tồn tại/);
+    assert.equal(service.createTag(42, "graph"), "graph");
+    assert.deepEqual(service.listTags(42), ["dp", "graph"]);
+
+    const editor = buildTagEditorReply(service, 42, "dp");
+    assert.notEqual(typeof editor, "string");
+    if (typeof editor !== "string") {
+      const keyboard = editor.options?.reply_markup;
+      assert.ok(keyboard && "inline_keyboard" in keyboard);
+      if (keyboard && "inline_keyboard" in keyboard) {
+        assert.match(keyboard.inline_keyboard[0][0].text, /^✅/);
+        assert.match(keyboard.inline_keyboard[1][0].text, /^❌/);
+      }
+    }
+
+    service.editTaskTag(42, "2001B", "add", "dp");
+    const remove = buildTagRemoveReply(service, 42, "dp");
+    assert.notEqual(typeof remove, "string");
+    assert.equal(service.removeTag(42, "dp"), 2);
+    assert.ok(service.listTasks(42).every((task) => !(task.tags ?? []).includes("dp")));
+    assert.deepEqual(service.listTags(42), ["graph"]);
   } finally {
     data.cleanup();
   }

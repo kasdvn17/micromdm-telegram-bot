@@ -25,6 +25,8 @@ export interface CodeforcesTask {
 
 interface UserTaskState {
   tasks: CodeforcesTask[];
+  /** Registry cho phép tag tồn tại ngay cả khi chưa gắn vào problem nào. */
+  tags?: string[];
   breakGate?: {
     date: string;
     lastBreakAt: string;
@@ -73,6 +75,9 @@ export interface CodeforcesTaskServiceApi {
   addTask(telegramId: number, problemQuery: string): Promise<CodeforcesTask>;
   addTasksAtomic(telegramId: number, problemReferences: readonly string[]): Promise<CodeforcesTask[]>;
   listTasks(telegramId: number): CodeforcesTask[];
+  listTags(telegramId: number): string[];
+  createTag(telegramId: number, tag: string): string;
+  removeTag(telegramId: number, tag: string): number;
   editTaskTag(
     telegramId: number,
     problemReference: string,
@@ -396,6 +401,53 @@ export function createCodeforcesTaskService(
       return [...getTasks(readState(), telegramId)];
     },
 
+    listTags(telegramId: number): string[] {
+      const state = readState();
+      const user = state.users[String(telegramId)];
+      const tags = new Set((user?.tags ?? []).map(normalizeTag));
+      for (const task of user?.tasks ?? []) {
+        for (const tag of task.tags ?? []) tags.add(normalizeTag(tag));
+      }
+      return [...tags].sort((a, b) => a.localeCompare(b));
+    },
+
+    createTag(telegramId: number, rawTag: string): string {
+      const tag = normalizeTag(rawTag);
+      const state = readState();
+      if (!state.users[String(telegramId)]) state.users[String(telegramId)] = { tasks: [] };
+      const user = state.users[String(telegramId)];
+      const tags = new Set([
+        ...(user.tags ?? []).map(normalizeTag),
+        ...user.tasks.flatMap((task) => (task.tags ?? []).map(normalizeTag)),
+      ]);
+      if (tags.has(tag)) throw new ValidationError(`Tag #${tag} đã tồn tại.`);
+      tags.add(tag);
+      user.tags = [...tags].sort((a, b) => a.localeCompare(b));
+      writeJsonState(filePath, state);
+      return tag;
+    },
+
+    removeTag(telegramId: number, rawTag: string): number {
+      const tag = normalizeTag(rawTag);
+      const state = readState();
+      const user = state.users[String(telegramId)];
+      if (!user) throw new ValidationError(`Không tìm thấy tag #${tag}.`);
+      const known = new Set([
+        ...(user.tags ?? []).map(normalizeTag),
+        ...user.tasks.flatMap((task) => (task.tags ?? []).map(normalizeTag)),
+      ]);
+      if (!known.has(tag)) throw new ValidationError(`Không tìm thấy tag #${tag}.`);
+      let affected = 0;
+      for (const task of user.tasks) {
+        const before = task.tags?.length ?? 0;
+        task.tags = (task.tags ?? []).filter((value) => normalizeTag(value) !== tag);
+        if (task.tags.length < before) affected++;
+      }
+      user.tags = (user.tags ?? []).filter((value) => normalizeTag(value) !== tag);
+      writeJsonState(filePath, state);
+      return affected;
+    },
+
     editTaskTag(telegramId, problemReference, action, rawTag): CodeforcesTask {
       const reference = parseProblemReference(problemReference);
       if (!reference) {
@@ -416,6 +468,10 @@ export function createCodeforcesTaskService(
       } else {
         if (!rawTag) throw new ValidationError("Thiếu tag cần chỉnh sửa.");
         const tag = normalizeTag(rawTag);
+        if (!state.users[String(telegramId)]) state.users[String(telegramId)] = { tasks: [] };
+        const registry = new Set((state.users[String(telegramId)].tags ?? []).map(normalizeTag));
+        if (action === "add") registry.add(tag);
+        state.users[String(telegramId)].tags = [...registry].sort((a, b) => a.localeCompare(b));
         const tags = new Set((task.tags ?? []).map(normalizeTag));
         if (action === "add") tags.add(tag);
         else tags.delete(tag);

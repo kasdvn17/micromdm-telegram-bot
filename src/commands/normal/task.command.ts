@@ -10,7 +10,13 @@ import {
 } from "../../types/command.types";
 import { ValidationError } from "../../utils/errors";
 import { FocusServiceApi } from "../../services/focusService";
-import { buildTaskTagPickerReply } from "../../telegram/taskTagInteraction";
+import {
+  buildCreateTagPrompt,
+  buildTagEditorReply,
+  buildTagRemoveReply,
+  buildTagSelectorReply,
+  buildTaskTagPickerReply,
+} from "../../telegram/taskTagInteraction";
 
 function formatRating(rating?: number, source?: string): string {
   if (!rating) return "Unrated";
@@ -191,6 +197,56 @@ export function createTaskCommand(
         const tags = (task.tags ?? []).map((value) => `#${value}`).join(" ") || "không còn tag";
         return `🏷 ${task.contestId}${task.index}: ${tags}.`;
       }
+      if (sub === "tag") {
+        const [action, rawTag, problemReference, ...extra] = rest;
+        if (extra.length > 0) {
+          throw new ValidationError("Cú pháp: /task tag add|edit|remove|list ...");
+        }
+        if (action === "list") {
+          if (rawTag || problemReference) throw new ValidationError("Cú pháp: /task tag list");
+          const tasks = taskService.listTasks(ctx.message.telegramId);
+          if (tasks.length === 0) return "📋 Chưa có problem nào trong task list.";
+          return [
+            "🏷 Problem → tags",
+            ...tasks.map((task) => {
+              const tags = (task.tags ?? []).map((tag) => `#${tag}`).join(", ") || "không có tag";
+              return `• ${task.contestId}${task.index} — ${task.name}\n  ${tags}`;
+            }),
+          ].join("\n");
+        }
+        if (action === "add") {
+          if (problemReference) throw new ValidationError("Cú pháp: /task tag add [tag]");
+          if (!rawTag) return buildCreateTagPrompt();
+          const tag = taskService.createTag(ctx.message.telegramId, rawTag);
+          return buildTagEditorReply(taskService, ctx.message.telegramId, tag);
+        }
+        if (action === "edit") {
+          if (problemReference) throw new ValidationError("Cú pháp: /task tag edit [tag]");
+          if (!rawTag) return buildTagSelectorReply(taskService, ctx.message.telegramId, "edit");
+          return buildTagEditorReply(
+            taskService,
+            ctx.message.telegramId,
+            rawTag.replace(/^#/, "").toLocaleLowerCase()
+          );
+        }
+        if (action === "remove") {
+          if (!rawTag) return buildTagSelectorReply(taskService, ctx.message.telegramId, "remove");
+          const tag = rawTag.replace(/^#/, "").toLocaleLowerCase();
+          if (problemReference) {
+            const task = taskService.editTaskTag(
+              ctx.message.telegramId,
+              problemReference,
+              "remove",
+              tag
+            );
+            return `➖ Đã gỡ #${tag} khỏi ${task.contestId}${task.index}.`;
+          }
+          return buildTagRemoveReply(taskService, ctx.message.telegramId, tag);
+        }
+        throw new ValidationError(
+          "Cú pháp: /task tag add [tag]|edit [tag]|remove [tag] [problemId]|list"
+        );
+      }
       if (sub === "remove") {
         if (rest.length !== 1) throw new ValidationError("Cú pháp: /task remove <problemId|url>");
         const removed = taskService.removeTask(ctx.message.telegramId, rest[0]);
@@ -226,18 +282,18 @@ export function createTaskCommand(
         const active = tasks.filter((task) => task.status === "active" && !task.archivedAt);
         const solved = tasks.filter((task) => task.status === "solved" && !task.archivedAt);
         const archived = tasks.filter((task) => !!task.archivedAt);
-        const tags = new Set(tasks.flatMap((task) => task.tags ?? []));
+        const tags = taskService.listTags(ctx.message.telegramId);
         return [
           `📊 Task status (${gate.date})`,
           `Task: ${active.length} active, ${solved.length} đã AC, ${archived.length} archived`,
-          `Tags: ${tags.size ? [...tags].map((tag) => `#${tag}`).join(", ") : "chưa có"}`,
+          `Tags: ${tags.length ? tags.map((tag) => `#${tag}`).join(", ") : "chưa có"}`,
           `Break: ${gate.acceptedSinceLastBreak}/${gate.breakRequiredCount}${gate.breakAllowed ? " ✅" : " ⏳"}`,
           `${inSleep ? "Sleep Focus off" : "Daily Focus off"}: ${gate.focusOffAcceptedCount}/${gate.focusOffRequiredCount}${gate.focusOffAllowed ? " ✅" : " ⏳"}`,
         ].join("\n");
       }
 
       throw new ValidationError(
-        "Cú pháp: /task add <problem>|add bulk <problemId|url>...|list [all] [tag]|tagedit ..."
+        "Cú pháp: /task add ...|list ...|tag add|edit|remove|list ...|tagedit ..."
       );
     },
   };
