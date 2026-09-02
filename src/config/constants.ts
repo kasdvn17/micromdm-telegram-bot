@@ -10,6 +10,9 @@ export interface AppConstants {
    *  (vd /installprofile <filename> tìm trong đây), tránh mỗi chỗ tự path.resolve riêng. */
   dataDir: string;
 
+  /** IANA timezone dùng thống nhất cho schedule, Sleep và Codeforces daily gates. */
+  timeZone: string;
+
   /** UDID của chiếc iPhone duy nhất mà bot điều khiển */
   deviceUUID: string;
 
@@ -113,9 +116,16 @@ export function loadConstants(env: NodeJS.ProcessEnv = process.env): AppConstant
   const webhookPath = configuredWebhookPath.startsWith("/")
     ? configuredWebhookPath
     : `/${configuredWebhookPath}`;
+  const timeZone = env.BOT_TIMEZONE?.trim() || "Asia/Ho_Chi_Minh";
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone }).format(new Date());
+  } catch {
+    throw new Error(`[config/constants] BOT_TIMEZONE không hợp lệ: ${timeZone}`);
+  }
 
   return {
     dataDir: DATA_DIR,
+    timeZone,
     deviceUUID,
     deviceInfoPollIntervalMs: parseIntEnv(
       env.DEVICE_INFO_POLL_INTERVAL_MS,

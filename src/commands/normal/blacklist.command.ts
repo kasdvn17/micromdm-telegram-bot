@@ -31,6 +31,10 @@ export function createBlacklistCommand(blacklistService: BlacklistServiceApi): C
           if (!value) throw new ValidationError("Cú pháp: /blacklist blwadd <website>");
           await blacklistService.addWebsite(value);
           return `🚫 Đã thêm website "${value}" vào blacklist.`;
+        case "blwlist":
+          throw new ValidationError(
+            "⛔ /blacklist blwlist đã bị vô hiệu hoá."
+          );
         default:
           throw new ValidationError("Cú pháp: /blacklist add <bundleId>|list|blwadd <website>");
       }

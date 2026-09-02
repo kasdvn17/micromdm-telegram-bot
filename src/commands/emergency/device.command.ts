@@ -83,7 +83,7 @@ export function createDeviceCommands(
       },
     },
     {
-      name: "status",
+      name: "devicestatus",
       tier: AuthTier.Emergency,
       handler: async (): Promise<string> => {
         const info = await deviceInfoService.getDeviceInfo(false);

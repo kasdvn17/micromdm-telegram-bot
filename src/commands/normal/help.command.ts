@@ -26,15 +26,26 @@ Quy ước: lệnh Emergency/Two-Factor đặt password ngay sau tên lệnh:
 /focus blwlist
 
 /task add <problem> — chỉ nhận bài rating >= 1600
-/task add bulk <id|url>... — thêm nhiều bài, không nhận tên
+/task add bulk <id|url>... [--atomic] — hỗ trợ dấu phẩy
 /task list — chỉ xem task active
 /task list all — xem cả task đã AC
-/refresh — cập nhật task và tiến độ các gate Focus
+/task list [all] [tag] — lọc và nhóm task theo tag
+/task list archived [tag] — xem task đã archive
+/task tagedit — xem problem list và tags
+/task tagedit <id> <tag> — gán tag cho task
+/task tagedit <id> remove <tag>|clear — gỡ tag
+/task remove <id> — xóa task active
+/task clear [tag] CONFIRM — xóa các task active
+/task archive [id] — ẩn task đã AC nhưng giữ solvedAt
+/task status — tiến độ task, break và Focus off
+/refresh [full] — incremental mặc định, full để quét lại toàn bộ
+/status — dashboard Focus, task, gate, break và thiết bị
 
 /notify on|off|test
 /blacklist add <bundleId>
 /blacklist list
 /blacklist blwadd <website>
+/blacklist blwlist — đã vô hiệu hoá
 /search <bundleId1> [bundleId2]...
 
 /ping — kiểm tra bot
@@ -55,7 +66,7 @@ Quy ước: lệnh Emergency/Two-Factor đặt password ngay sau tên lệnh:
 /battery <password> [realtime]
 /location <password>
 /deviceinfo <password> [realtime]
-/status <password>
+/devicestatus <password>
 /lost <password> enable <phone> [footnote]
 /lost <password> disable
 /safe <password> on|off

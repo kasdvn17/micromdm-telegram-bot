@@ -43,7 +43,7 @@ export function createBlacklistService(
       restrictedBundleIds: bundleIds,
       blockedWebsites: websites,
     });
-    await deviceCommands.installProfile(profile);
+    await deviceCommands.installProfile(profile, BLACKLIST_PROFILE_IDENTIFIER);
     bus.publish({ type: "profile.installed", identifier: BLACKLIST_PROFILE_IDENTIFIER });
   };
 

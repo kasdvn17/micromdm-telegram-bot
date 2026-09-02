@@ -3,10 +3,7 @@ import {
   CodeforcesProblemRatingSource,
   CodeforcesSubmission,
 } from "../types/codeforces.types";
-import {
-  CodeforcesClient,
-  findFirstAcceptedSubmissionForProblem,
-} from "../utils/codeforces";
+import { CodeforcesClient } from "../utils/codeforces";
 import { ValidationError } from "../utils/errors";
 import { readJsonState, writeJsonState } from "../utils/jsonStore";
 
@@ -21,6 +18,9 @@ export interface CodeforcesTask {
   solvedAt?: string;
   rating?: number;
   ratingSource?: CodeforcesProblemRatingSource;
+  /** Một task có thể nằm trong nhiều nhóm; field optional để tương thích JSON cũ. */
+  tags?: string[];
+  archivedAt?: string;
 }
 
 interface UserTaskState {
@@ -28,6 +28,12 @@ interface UserTaskState {
   breakGate?: {
     date: string;
     lastBreakAt: string;
+  };
+  submissionSync?: {
+    lastFullSyncAt: string;
+    newestSubmissionId?: number;
+    /** problemKey -> epoch seconds của submission OK đầu tiên. */
+    firstAcceptedAt: Record<string, number>;
   };
 }
 
@@ -40,6 +46,7 @@ export interface RefreshResult {
   newlySolved: CodeforcesTask[];
   unavailablePublicProblems: CodeforcesTask[];
   ratingsUpdated: number;
+  syncMode: "full" | "incremental";
 }
 
 export interface DailyCodeforcesGateStatus {
@@ -57,11 +64,26 @@ export interface FocusOffGateOptions {
   requiredCount?: number;
 }
 
+export interface CodeforcesTaskServiceOptions {
+  now?: () => Date;
+  timeZone?: string;
+}
+
 export interface CodeforcesTaskServiceApi {
   addTask(telegramId: number, problemQuery: string): Promise<CodeforcesTask>;
+  addTasksAtomic(telegramId: number, problemReferences: readonly string[]): Promise<CodeforcesTask[]>;
   listTasks(telegramId: number): CodeforcesTask[];
+  editTaskTag(
+    telegramId: number,
+    problemReference: string,
+    action: "add" | "remove" | "clear",
+    tag?: string
+  ): CodeforcesTask;
+  removeTask(telegramId: number, problemReference: string): CodeforcesTask;
+  clearActiveTasks(telegramId: number, tag?: string): number;
+  archiveSolvedTasks(telegramId: number, problemReference?: string): number;
   refreshRatings(telegramId: number): Promise<number>;
-  refresh(telegramId: number): Promise<RefreshResult>;
+  refresh(telegramId: number, options?: { full?: boolean }): Promise<RefreshResult>;
   getDailyGateStatus(
     telegramId: number,
     focusOffOptions?: FocusOffGateOptions
@@ -75,16 +97,32 @@ export interface CodeforcesTaskServiceApi {
 const BREAK_REQUIRED_NEW_AC = 1;
 const FOCUS_OFF_REQUIRED_DAILY_AC = 7;
 const MIN_TASK_RATING_INCLUSIVE = 1600;
+const FULL_SUBMISSION_SYNC_INTERVAL_MS = 24 * 60 * 60 * 1000;
 
-function localDateStr(date: Date): string {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
+function localDateStr(date: Date, timeZone: string): string {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(date);
+  const value = (type: Intl.DateTimeFormatPartTypes): string =>
+    parts.find((part) => part.type === type)?.value ?? "";
+  return `${value("year")}-${value("month")}-${value("day")}`;
 }
 
 function problemKey(contestId: number, index: string): string {
   return `${contestId}:${index.trim().toUpperCase()}`;
+}
+
+function normalizeTag(value: string): string {
+  const tag = value.trim().replace(/^#/, "").toLocaleLowerCase();
+  if (!tag || tag.length > 24 || !/^[\p{L}\p{N}_.-]+$/u.test(tag)) {
+    throw new ValidationError(
+      "Tag phải dài 1-24 ký tự và chỉ gồm chữ, số, dấu chấm, gạch ngang hoặc gạch dưới."
+    );
+  }
+  return tag;
 }
 
 function normalizeTitle(value: string): string {
@@ -162,9 +200,12 @@ function resolvePublicProblem(problems: readonly CodeforcesProblem[], query: str
 export function createCodeforcesTaskService(
   filePath: string,
   handle: string | undefined,
-  client: CodeforcesClient = new CodeforcesClient()
+  client: CodeforcesClient = new CodeforcesClient(),
+  options: CodeforcesTaskServiceOptions = {}
 ): CodeforcesTaskServiceApi {
   const normalizedHandle = handle?.trim();
+  const now = options.now ?? (() => new Date());
+  const timeZone = options.timeZone ?? Intl.DateTimeFormat().resolvedOptions().timeZone;
 
   const readState = (): CodeforcesTaskState =>
     readJsonState<CodeforcesTaskState>(filePath, { users: {} });
@@ -178,12 +219,12 @@ export function createCodeforcesTaskService(
     now: Date = new Date(),
     focusOffOptions: FocusOffGateOptions = {}
   ): DailyCodeforcesGateStatus => {
-    const date = localDateStr(now);
+    const date = localDateStr(now, timeZone);
     const userState = state.users[String(telegramId)];
     const lastBreakAt =
       userState?.breakGate?.date === date
         ? new Date(userState.breakGate.lastBreakAt).getTime()
-        : new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+        : 0;
     const eligibleTasks = (userState?.tasks ?? []).filter((task) => {
       if (task.status !== "solved" || !task.solvedAt) return false;
       const solvedAt = new Date(task.solvedAt);
@@ -194,7 +235,7 @@ export function createCodeforcesTaskService(
       );
     });
     const dailyTasks = eligibleTasks.filter(
-      (task) => localDateStr(new Date(task.solvedAt!)) === date
+      (task) => localDateStr(new Date(task.solvedAt!), timeZone) === date
     );
     const acceptedSinceLastBreak = dailyTasks.filter(
       (task) => new Date(task.solvedAt!).getTime() > lastBreakAt
@@ -298,7 +339,7 @@ export function createCodeforcesTaskService(
         index: problem.index.toUpperCase(),
         name: problem.name,
         status: "active",
-        addedAt: new Date().toISOString(),
+        addedAt: now().toISOString(),
         rating: resolvedRating.rating,
         ratingSource: resolvedRating.source,
       };
@@ -310,8 +351,126 @@ export function createCodeforcesTaskService(
       return task;
     },
 
+    async addTasksAtomic(telegramId, problemReferences): Promise<CodeforcesTask[]> {
+      requireHandle();
+      if (problemReferences.length === 0) {
+        throw new ValidationError("Danh sách bulk không được để trống.");
+      }
+      const problems = await client.fetchPublicProblems();
+      const state = readState();
+      const tasks = getTasks(state, telegramId);
+      const existingKeys = new Set(tasks.map((task) => problemKey(task.contestId, task.index)));
+      const pendingKeys = new Set<string>();
+      const added: CodeforcesTask[] = [];
+
+      for (const reference of problemReferences) {
+        const problem = resolvePublicProblem(problems, reference);
+        const key = problemKey(problem.contestId!, problem.index);
+        if (existingKeys.has(key) || pendingKeys.has(key)) {
+          throw new ValidationError(`Bài ${problem.contestId}${problem.index} đã tồn tại hoặc bị lặp trong bulk.`);
+        }
+        const resolvedRating = await client.getProblemRating(problem.contestId!, problem.index);
+        if (!Number.isFinite(resolvedRating.rating) || resolvedRating.rating! < MIN_TASK_RATING_INCLUSIVE) {
+          throw new ValidationError(
+            `Không thể thêm ${problem.contestId}${problem.index}: rating là ${resolvedRating.rating ?? "Unrated"}; yêu cầu >= ${MIN_TASK_RATING_INCLUSIVE}. Không task nào được thêm.`
+          );
+        }
+        pendingKeys.add(key);
+        added.push({
+          contestId: problem.contestId!,
+          index: problem.index.toUpperCase(),
+          name: problem.name,
+          status: "active",
+          addedAt: now().toISOString(),
+          rating: resolvedRating.rating,
+          ratingSource: resolvedRating.source,
+        });
+      }
+      if (!state.users[String(telegramId)]) state.users[String(telegramId)] = { tasks: [] };
+      state.users[String(telegramId)].tasks.push(...added);
+      writeJsonState(filePath, state);
+      return added.map((task) => ({ ...task }));
+    },
+
     listTasks(telegramId: number): CodeforcesTask[] {
       return [...getTasks(readState(), telegramId)];
+    },
+
+    editTaskTag(telegramId, problemReference, action, rawTag): CodeforcesTask {
+      const reference = parseProblemReference(problemReference);
+      if (!reference) {
+        throw new ValidationError("Hãy chọn task bằng problem ID hoặc URL Codeforces.");
+      }
+      const state = readState();
+      const task = getTasks(state, telegramId).find(
+        (item) => problemKey(item.contestId, item.index) === problemKey(reference.contestId, reference.index)
+      );
+      if (!task) {
+        throw new ValidationError(
+          `Không tìm thấy ${reference.contestId}${reference.index} trong task list.`
+        );
+      }
+
+      if (action === "clear") {
+        task.tags = [];
+      } else {
+        if (!rawTag) throw new ValidationError("Thiếu tag cần chỉnh sửa.");
+        const tag = normalizeTag(rawTag);
+        const tags = new Set((task.tags ?? []).map(normalizeTag));
+        if (action === "add") tags.add(tag);
+        else tags.delete(tag);
+        task.tags = [...tags].sort((a, b) => a.localeCompare(b));
+      }
+      writeJsonState(filePath, state);
+      return { ...task, tags: [...(task.tags ?? [])] };
+    },
+
+    removeTask(telegramId, problemReference): CodeforcesTask {
+      const reference = parseProblemReference(problemReference);
+      if (!reference) throw new ValidationError("Hãy chọn task bằng problem ID hoặc URL Codeforces.");
+      const state = readState();
+      const tasks = getTasks(state, telegramId);
+      const index = tasks.findIndex(
+        (task) => problemKey(task.contestId, task.index) === problemKey(reference.contestId, reference.index)
+      );
+      if (index < 0) throw new ValidationError(`Không tìm thấy ${reference.contestId}${reference.index} trong task list.`);
+      if (tasks[index].status === "solved") {
+        throw new ValidationError("Task đã AC không được xóa vì còn dùng để tính gate; hãy dùng /task archive.");
+      }
+      const [removed] = tasks.splice(index, 1);
+      writeJsonState(filePath, state);
+      return removed;
+    },
+
+    clearActiveTasks(telegramId, rawTag): number {
+      const state = readState();
+      const user = state.users[String(telegramId)];
+      if (!user) return 0;
+      const tag = rawTag ? normalizeTag(rawTag) : undefined;
+      const before = user.tasks.length;
+      user.tasks = user.tasks.filter(
+        (task) => task.status !== "active" || (tag && !(task.tags ?? []).includes(tag))
+      );
+      const removed = before - user.tasks.length;
+      if (removed > 0) writeJsonState(filePath, state);
+      return removed;
+    },
+
+    archiveSolvedTasks(telegramId, problemReference): number {
+      const state = readState();
+      const tasks = getTasks(state, telegramId);
+      let selected = tasks.filter((task) => task.status === "solved" && !task.archivedAt);
+      if (problemReference) {
+        const reference = parseProblemReference(problemReference);
+        if (!reference) throw new ValidationError("Hãy chọn task bằng problem ID hoặc URL Codeforces.");
+        selected = selected.filter(
+          (task) => problemKey(task.contestId, task.index) === problemKey(reference.contestId, reference.index)
+        );
+      }
+      const archivedAt = now().toISOString();
+      for (const task of selected) task.archivedAt = archivedAt;
+      if (selected.length > 0) writeJsonState(filePath, state);
+      return selected.length;
     },
 
     async refreshRatings(telegramId: number): Promise<number> {
@@ -321,15 +480,52 @@ export function createCodeforcesTaskService(
       return updated;
     },
 
-    async refresh(telegramId: number): Promise<RefreshResult> {
+    async refresh(telegramId: number, refreshOptions = {}): Promise<RefreshResult> {
       const currentState = readState();
       const currentTasks = getTasks(currentState, telegramId);
       const ratingsUpdated = await updateRatings(currentTasks);
       const codeforcesHandle = requireHandle();
+      if (!currentState.users[String(telegramId)]) {
+        currentState.users[String(telegramId)] = { tasks: currentTasks };
+      }
+      const userState = currentState.users[String(telegramId)];
+      const lastFullSyncMs = userState.submissionSync
+        ? new Date(userState.submissionSync.lastFullSyncAt).getTime()
+        : Number.NaN;
+      const full =
+        !!refreshOptions.full ||
+        !userState.submissionSync ||
+        !Number.isFinite(lastFullSyncMs) ||
+        now().getTime() - lastFullSyncMs >= FULL_SUBMISSION_SYNC_INTERVAL_MS;
       const [submissions, publicProblems] = await Promise.all([
-        client.fetchAllUserSubmissions(codeforcesHandle),
+        full
+          ? client.fetchAllUserSubmissions(codeforcesHandle)
+          : client.fetchRecentUserSubmissions(codeforcesHandle),
         client.fetchPublicProblems(),
       ]);
+      const firstAcceptedAt = full
+        ? ({} as Record<string, number>)
+        : { ...(userState.submissionSync?.firstAcceptedAt ?? {}) };
+      for (const submission of submissions as readonly CodeforcesSubmission[]) {
+        if (submission.verdict !== "OK") continue;
+        const contestId = submission.problem.contestId ?? submission.contestId;
+        if (!contestId) continue;
+        const key = problemKey(contestId, submission.problem.index);
+        const previous = firstAcceptedAt[key];
+        if (!Number.isFinite(previous) || submission.creationTimeSeconds < previous) {
+          firstAcceptedAt[key] = submission.creationTimeSeconds;
+        }
+      }
+      userState.submissionSync = {
+        lastFullSyncAt: full
+          ? now().toISOString()
+          : userState.submissionSync!.lastFullSyncAt,
+        newestSubmissionId: submissions.reduce(
+          (largest, submission) => Math.max(largest, submission.id),
+          userState.submissionSync?.newestSubmissionId ?? 0
+        ),
+        firstAcceptedAt,
+      };
       const publicKeys = new Set(
         publicProblems
           .filter((problem) => problem.contestId)
@@ -343,34 +539,26 @@ export function createCodeforcesTaskService(
           if (task.status === "active") unavailablePublicProblems.push(task);
           continue;
         }
-        const firstAccepted = findFirstAcceptedSubmissionForProblem(
-          submissions as readonly CodeforcesSubmission[],
-          task.contestId,
-          task.index
-        );
-        if (firstAccepted) {
-          const firstAcceptedAt = new Date(
-            firstAccepted.creationTimeSeconds * 1000
-          ).toISOString();
+        const acceptedAtSeconds = firstAcceptedAt[problemKey(task.contestId, task.index)];
+        if (Number.isFinite(acceptedAtSeconds)) {
+          const firstAcceptedAtIso = new Date(acceptedAtSeconds * 1000).toISOString();
           if (task.status === "active") {
             task.status = "solved";
             newlySolved.push(task);
           }
           // Luôn sửa lại cả task solved cũ: mốc là submission OK đầu tiên,
           // tuyệt đối không dùng thời điểm người dùng gọi /refresh.
-          task.solvedAt = firstAcceptedAt;
+          task.solvedAt = firstAcceptedAtIso;
         }
       }
 
-      if (!currentState.users[String(telegramId)]) {
-        currentState.users[String(telegramId)] = { tasks: currentTasks };
-      }
       writeJsonState(filePath, currentState);
       return {
         tasks: [...currentTasks],
         newlySolved: [...newlySolved],
         unavailablePublicProblems: [...unavailablePublicProblems],
         ratingsUpdated,
+        syncMode: full ? "full" : "incremental",
       };
     },
 
@@ -378,7 +566,7 @@ export function createCodeforcesTaskService(
       telegramId: number,
       focusOffOptions?: FocusOffGateOptions
     ): DailyCodeforcesGateStatus {
-      return getDailyGateStatus(readState(), telegramId, new Date(), focusOffOptions);
+      return getDailyGateStatus(readState(), telegramId, now(), focusOffOptions);
     },
 
     assertBreakAllowed(telegramId: number): void {
@@ -397,16 +585,16 @@ export function createCodeforcesTaskService(
       if (!state.users[String(telegramId)]) {
         state.users[String(telegramId)] = { tasks: [] };
       }
-      const now = new Date();
+      const currentTime = now();
       state.users[String(telegramId)].breakGate = {
-        date: localDateStr(now),
-        lastBreakAt: now.toISOString(),
+        date: localDateStr(currentTime, timeZone),
+        lastBreakAt: currentTime.toISOString(),
       };
       writeJsonState(filePath, state);
     },
 
     assertFocusOffAllowed(telegramId: number, options?: FocusOffGateOptions): void {
-      const status = getDailyGateStatus(readState(), telegramId, new Date(), options);
+      const status = getDailyGateStatus(readState(), telegramId, now(), options);
       if (status.focusOffAllowed) return;
       throw new ValidationError(
         `Không thể tắt Focus: mới xác nhận ${status.focusOffAcceptedCount}/${status.focusOffRequiredCount} task AC hợp lệ trong khoảng thời gian yêu cầu.\n` +

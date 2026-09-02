@@ -51,6 +51,7 @@ import {
 import { createInstallProfileCommand, createListProfilesCommand, createRemoveProfileCommand } from "./commands/emergency/profile.command";
 import { createHelpCommand } from "./commands/normal/help.command";
 import { createRefreshCommand, createTaskCommand } from "./commands/normal/task.command";
+import { createStatusCommand } from "./commands/normal/status.command";
 
 async function main(): Promise<void> {
   // Bắt toàn cục unhandledRejection/uncaughtException - CHỈ LOG, không thoát
@@ -90,6 +91,8 @@ async function main(): Promise<void> {
 
   // 1. Config - fail-fast nếu thiếu biến môi trường
   const config = loadConfig();
+  // Date#getHours/getDay trong scheduler phải dùng cùng một múi giờ trên mọi host.
+  process.env.TZ = config.constants.timeZone;
   initLogger(config.constants.logDir);
   const logger = getLogger();
   logger.info("[main] Config loaded OK, khởi động bot...");
@@ -206,7 +209,9 @@ async function main(): Promise<void> {
   const appManagementService = createAppManagementService(deviceCommands, bus);
   const codeforcesTaskService = createCodeforcesTaskService(
     config.constants.codeforcesTasksFilePath,
-    config.constants.codeforcesHandle
+    config.constants.codeforcesHandle,
+    undefined,
+    { timeZone: config.constants.timeZone }
   );
 
   // 6. Event subscribers
@@ -231,8 +236,9 @@ async function main(): Promise<void> {
   // 8. Đăng ký toàn bộ command
   const commands: CommandDefinition[] = [
     createFocusCommand(focusService, codeforcesTaskService),
-    createTaskCommand(codeforcesTaskService),
+    createTaskCommand(codeforcesTaskService, focusService),
     createRefreshCommand(codeforcesTaskService, focusService),
+    createStatusCommand(focusService, codeforcesTaskService, deviceInfoService),
     createNotifyCommand(notificationService),
     createPingCommand(),
     createHealthCommand(),

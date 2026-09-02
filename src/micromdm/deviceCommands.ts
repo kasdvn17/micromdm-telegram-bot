@@ -186,12 +186,54 @@ export class DeviceCommands {
     };
   }
 
-  installProfile(mobileConfigBase64: string): Promise<MdmCommandQueuedResult> {
-    return this.client.installProfile(this.deviceUUID, mobileConfigBase64);
+  private async retryProfileCommand<T>(operation: string, fn: () => Promise<T>): Promise<T> {
+    let lastError: Error | undefined;
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      try {
+        return await fn();
+      } catch (error) {
+        lastError = error instanceof Error ? error : new Error(String(error));
+        if (attempt < 2) await new Promise((resolve) => setTimeout(resolve, 1_000));
+      }
+    }
+    throw new Error(`${operation} thất bại sau 2 lần: ${lastError?.message ?? "không rõ lỗi"}`);
   }
 
-  removeProfile(profileIdentifier: string): Promise<MdmCommandQueuedResult> {
-    return this.client.removeProfile(this.deviceUUID, profileIdentifier);
+  /** Chờ ACK thật, retry một lần, rồi reconcile bằng ProfileList nếu biết identifier. */
+  async installProfile(
+    mobileConfigBase64: string,
+    expectedIdentifier?: string
+  ): Promise<MdmCommandResult> {
+    return this.retryProfileCommand("InstallProfile", async () => {
+      const result = await this.client.sendCommandAndWait({
+        udid: this.deviceUUID,
+        request_type: "InstallProfile",
+        payload: mobileConfigBase64,
+      });
+      if (expectedIdentifier) {
+        const profiles = await this.listProfiles();
+        if (!profiles.some((profile) => profile.identifier === expectedIdentifier)) {
+          throw new Error(`ACK đã nhận nhưng ProfileList chưa có ${expectedIdentifier}`);
+        }
+      }
+      return result;
+    });
+  }
+
+  /** Chờ ACK thật, retry một lần và xác minh profile đã biến mất. */
+  async removeProfile(profileIdentifier: string): Promise<MdmCommandResult> {
+    return this.retryProfileCommand("RemoveProfile", async () => {
+      const result = await this.client.sendCommandAndWait({
+        udid: this.deviceUUID,
+        request_type: "RemoveProfile",
+        Identifier: profileIdentifier,
+      });
+      const profiles = await this.listProfiles();
+      if (profiles.some((profile) => profile.identifier === profileIdentifier)) {
+        throw new Error(`ACK đã nhận nhưng ProfileList vẫn còn ${profileIdentifier}`);
+      }
+      return result;
+    });
   }
 
   /**

@@ -42,7 +42,7 @@ export function createSafeModeService(
       displayName: "Safe Mode (sensitive apps)",
       restrictedBundleIds: bundleIds,
     });
-    await deviceCommands.installProfile(profile);
+    await deviceCommands.installProfile(profile, SAFE_PROFILE_IDENTIFIER);
     bus.publish({ type: "profile.installed", identifier: SAFE_PROFILE_IDENTIFIER });
   };
 

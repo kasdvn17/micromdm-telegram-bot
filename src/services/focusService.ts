@@ -100,7 +100,7 @@ export function createFocusService(
       restrictedBundleIds: bundleIds,
       blockedWebsites: websites,
     });
-    await deviceCommands.installProfile(profile);
+    await deviceCommands.installProfile(profile, FOCUS_PROFILE_IDENTIFIER);
     bus.publish({ type: "profile.installed", identifier: FOCUS_PROFILE_IDENTIFIER });
   };
 

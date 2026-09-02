@@ -47,15 +47,23 @@ Emergency không yêu cầu đúng username; vì vậy `EMERGENCY_PASSWORD` ph�
 /focus blwlist
 
 /task add <problem>
-/task add bulk <problemId|url> [problemId|url]...
-/task list
-/task list all
-/refresh
+/task add bulk <problemId|url>... [--atomic]
+/task list [all|archived] [tag]
+/task tagedit
+/task tagedit <problemId> <tag>
+/task tagedit <problemId> remove <tag>|clear
+/task remove <problemId>
+/task clear [tag] CONFIRM
+/task archive [problemId]
+/task status
+/refresh [full]
+/status
 
 /notify on|off|test
 /blacklist add <bundleId>
 /blacklist list
 /blacklist blwadd <website>
+/blacklist blwlist # đã vô hiệu hóa
 /search <bundleId1> [bundleId2]...
 
 /ping
@@ -87,7 +95,7 @@ Các lệnh:
 /battery <password> [realtime]
 /location <password>
 /deviceinfo <password> [realtime]
-/status <password>
+/devicestatus <password>
 
 /lost <password> enable <phone> [footnote]
 /lost <password> disable
@@ -157,7 +165,7 @@ Các nguồn Focus dùng chung một profile và được tính theo kiểu refe
 
 ### Yêu cầu
 
-- Bun hoặc Node.js >= 18.
+- Node.js >= 22.13 (dùng `node:sqlite`).
 - MicroMDM đang chạy và có APNs push certificate hợp lệ.
 - Telegram Bot tạo bằng BotFather.
 - Thiết bị iOS đã Supervised và enrolled vào MicroMDM.
@@ -207,6 +215,7 @@ bun run dev
 bun run build
 bun start
 bun run typecheck
+bun run test
 ```
 
 ## Codeforces utility
@@ -229,7 +238,7 @@ const difficulty = await getCodeforcesProblemRating(4, "A");
 
 `getCodeforcesProblemRating()` ưu tiên rating chính thức từ Codeforces. Nếu API chưa có rating, hàm dùng dataset JSON công khai của [Codeforces Problems](https://github.com/kira924age/CodeforcesProblems), cache 24 giờ và trả nguồn `kira`; nếu cả hai nguồn đều thiếu thì trả `source: "unrated"`. `/task add` và `/task list` cũng hiển thị difficulty kèm nguồn.
 
-Đặt `CODEFORCES_HANDLE` trong `.env`, sau đó dùng `/task add <problem>` (hỗ trợ mã, URL hoặc đúng tên bài). `/task add bulk <problemId|url>...` thêm nhiều bài tuần tự và chỉ nhận mã hoặc URL Codeforces, không nhận tên bài. Chỉ bài có rating xác định và **từ 1600 trở lên** mới được thêm; rating chính thức và rating external Kira đều hợp lệ. `/task list` chỉ hiện task active, còn `/task list all` hiện cả task đã AC. Bài đã AC trước khi `/task add` vẫn được tính bình thường. `/refresh` luôn đặt `solvedAt` theo submission `OK` đầu tiên của bài, không theo thời điểm refresh. Mỗi lần `/focus break` cần 1 task có `solvedAt` sau lần break trước. Ngoài Sleep Mode, `/focus off` cần 7 task có `solvedAt` trong ngày hiện tại; trong Sleep Mode, cần 3 task có `solvedAt` từ lúc phiên bắt đầu.
+Đặt `CODEFORCES_HANDLE` trong `.env`, sau đó dùng `/task add <problem>` (hỗ trợ mã, URL hoặc đúng tên bài). `/task add bulk` nhận mã/URL cách nhau bằng khoảng trắng hoặc dấu phẩy; thêm `--atomic` để nếu một bài lỗi thì không thêm bài nào. Chỉ bài có rating xác định và **từ 1600 trở lên** mới được thêm; rating chính thức và rating external Kira đều hợp lệ. Task hỗ trợ nhiều tag qua `/task tagedit`; `/task list` chỉ hiện task active chưa archive, còn `all` hiện cả task đã AC. Bài đã AC trước khi `/task add` vẫn được tính bình thường. `/refresh` dùng cache tăng dần; `/refresh full` hoặc full-sync tự động mỗi 24 giờ sẽ quét toàn bộ lịch sử. `solvedAt` luôn lấy submission `OK` đầu tiên, không lấy thời điểm refresh. Mỗi lần `/focus break` cần 1 task có `solvedAt` sau lần break trước. Ngoài Sleep Mode, `/focus off` cần 7 task có `solvedAt` trong ngày hiện tại; trong Sleep Mode, cần 3 task có `solvedAt` từ lúc phiên bắt đầu.
 
 Trong Sleep Mode (22:00–05:00), `/focus off` đếm từ đúng 22:00 của phiên, kể cả sau khi qua nửa đêm, và tắt Sleep Mode cho phần còn lại của phiên hiện tại. Gate ngoài Sleep tự reset khi sang ngày mới.
 
@@ -239,7 +248,9 @@ Bot gửi một câu trong danh sách cục bộ sau mỗi 60 phút kể từ l�
 
 ## Dữ liệu
 
-Bot lưu trạng thái bằng JSON trong `data/`, gồm:
+Bot mặc định lưu state trong SQLite (`data/state.sqlite`, WAL). Khi một state key được đọc lần đầu, JSON cũ tương ứng được import tự động và file cũ vẫn được giữ làm backup. Có thể tạm quay về JSON bằng `STATE_STORAGE=json`.
+
+Các file JSON legacy gồm:
 
 - `blacklist.json` — app blacklist.
 - `restricted-apps.json` — app bị chặn bởi Focus/Safe Mode.

@@ -19,3 +19,6 @@ data/logs/bot-latest.log
 data/logs
 
 data/history.json
+
+# SQLite state and WAL sidecars
+data/state.sqlite*

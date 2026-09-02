@@ -4,11 +4,15 @@
   "private": true,
   "description": "Telegram bot controlling a single supervised iPhone via the MicroMDM REST API",
   "main": "dist/main.js",
+  "engines": {
+    "node": ">=22.13"
+  },
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "start": "node dist/main.js",
-    "dev": "bun run --watch src/main.ts",
-    "typecheck": "tsc --noEmit"
+    "dev": "node --watch -r ts-node/register src/main.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "TS_NODE_FILES=true node --test -r ts-node/register tests/**/*.test.ts"
   },
   "dependencies": {
     "dotenv": "^16.4.5",

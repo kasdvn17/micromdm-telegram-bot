@@ -185,6 +185,22 @@ export class CodeforcesClient {
     return submissions;
   }
 
+  /** Lấy trang submission mới nhất để refresh tăng dần, tránh quét toàn bộ lịch sử mỗi lần. */
+  async fetchRecentUserSubmissions(
+    handle: string,
+    count = DEFAULT_PAGE_SIZE
+  ): Promise<CodeforcesSubmission[]> {
+    const normalizedHandle = validateHandle(handle);
+    if (!Number.isInteger(count) || count <= 0 || count > 10_000) {
+      throw new ValidationError("Codeforces submission count phải trong khoảng 1..10000.");
+    }
+    return this.request<CodeforcesSubmission[]>("user.status", {
+      handle: normalizedHandle,
+      from: "1",
+      count: String(count),
+    });
+  }
+
   /** Lấy danh sách bài hiện có trong problemset public của Codeforces. */
   async fetchPublicProblems(forceRefresh = false): Promise<CodeforcesProblem[]> {
     if (
