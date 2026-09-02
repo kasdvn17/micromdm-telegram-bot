@@ -2,7 +2,8 @@ import TelegramBot from "node-telegram-bot-api";
 import { getLogger } from "../utils/logger";
 
 export interface NotificationServiceApi {
-  send(message: string): Promise<void>;
+  send(message: string): Promise<number | undefined>;
+  edit(messageId: number, message: string): Promise<void>;
   isEnabled(): boolean;
   setEnabled(v: boolean): void;
   setChatId(chatId: number): void;
@@ -27,16 +28,29 @@ export function createNotificationService(
   let chatId: number | null = initialChatId ?? null;
 
   return {
-    async send(message: string): Promise<void> {
-      if (!enabled) return;
+    async send(message: string): Promise<number | undefined> {
+      if (!enabled) return undefined;
       if (chatId === null) {
         getLogger().warn("[notificationService] Chưa bind chatId - bỏ qua notify", { message });
-        return;
+        return undefined;
       }
       try {
-        await bot.sendMessage(chatId, message);
+        const sent = await bot.sendMessage(chatId, message);
+        return sent.message_id;
       } catch (err) {
         getLogger().error("[notificationService] Gửi Telegram thất bại", {
+          error: (err as Error).message,
+        });
+        return undefined;
+      }
+    },
+    async edit(messageId: number, message: string): Promise<void> {
+      if (!enabled || chatId === null) return;
+      try {
+        await bot.editMessageText(message, { chat_id: chatId, message_id: messageId });
+      } catch (err) {
+        getLogger().warn("[notificationService] Không cập nhật được message", {
+          messageId,
           error: (err as Error).message,
         });
       }

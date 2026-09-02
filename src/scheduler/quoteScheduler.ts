@@ -1,5 +1,6 @@
 import { NotificationServiceApi } from "../services/notificationService";
 import { getLogger } from "../utils/logger";
+import { readJsonState, writeJsonState } from "../utils/jsonStore";
 
 export interface FamousQuote {
   text: string;
@@ -25,20 +26,52 @@ export interface QuoteSchedulerApi {
   start(intervalMs: number): void;
   stop(): void;
   sendNext(): Promise<void>;
+  setEnabled(enabled: boolean): void;
+  snooze(ms: number): void;
+  setQuietHours(start?: string, end?: string): void;
+  status(): { enabled: boolean; snoozedUntil?: string; quietStart?: string; quietEnd?: string };
+}
+
+interface QuoteSettings {
+  enabled: boolean;
+  snoozedUntil?: string;
+  quietStart?: string;
+  quietEnd?: string;
 }
 
 /** Gửi đúng một câu sau mỗi interval; không gửi ngay khi bot vừa khởi động. */
 export function createQuoteScheduler(
   notificationService: NotificationServiceApi,
-  quotes: readonly FamousQuote[] = FAMOUS_QUOTES
+  quotes: readonly FamousQuote[] = FAMOUS_QUOTES,
+  settingsFilePath = "./data/quote-settings.json",
+  timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone
 ): QuoteSchedulerApi {
   if (quotes.length === 0) throw new Error("Quote scheduler cần ít nhất một câu quote.");
 
   let handle: NodeJS.Timeout | null = null;
   let nextIndex = Math.floor(Math.random() * quotes.length);
   let sending = false;
+  const readSettings = (): QuoteSettings =>
+    readJsonState<QuoteSettings>(settingsFilePath, { enabled: true });
+  const inQuietHours = (settings: QuoteSettings, now = new Date()): boolean => {
+    if (!settings.quietStart || !settings.quietEnd) return false;
+    const parts = new Intl.DateTimeFormat("en-GB", {
+      timeZone,
+      hour: "2-digit",
+      minute: "2-digit",
+      hourCycle: "h23",
+    }).formatToParts(now);
+    const value = (type: "hour" | "minute") => parts.find((part) => part.type === type)?.value ?? "00";
+    const hhmm = `${value("hour")}:${value("minute")}`;
+    return settings.quietStart < settings.quietEnd
+      ? hhmm >= settings.quietStart && hhmm < settings.quietEnd
+      : hhmm >= settings.quietStart || hhmm < settings.quietEnd;
+  };
 
   const sendNext = async (): Promise<void> => {
+    const settings = readSettings();
+    if (!settings.enabled || inQuietHours(settings)) return;
+    if (settings.snoozedUntil && new Date(settings.snoozedUntil).getTime() > Date.now()) return;
     if (sending) {
       getLogger().warn("[quoteScheduler] Bỏ qua tick vì lần gửi trước chưa hoàn tất");
       return;
@@ -68,5 +101,24 @@ export function createQuoteScheduler(
       handle = null;
     },
     sendNext,
+    setEnabled(enabled: boolean): void {
+      const settings = readSettings();
+      settings.enabled = enabled;
+      writeJsonState(settingsFilePath, settings);
+    },
+    snooze(ms: number): void {
+      const settings = readSettings();
+      settings.snoozedUntil = new Date(Date.now() + ms).toISOString();
+      writeJsonState(settingsFilePath, settings);
+    },
+    setQuietHours(start?: string, end?: string): void {
+      const settings = readSettings();
+      settings.quietStart = start;
+      settings.quietEnd = end;
+      writeJsonState(settingsFilePath, settings);
+    },
+    status(): QuoteSettings {
+      return readSettings();
+    },
   };
 }

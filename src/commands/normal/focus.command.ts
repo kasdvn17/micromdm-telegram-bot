@@ -77,6 +77,20 @@ export function createFocusCommand(
           );
         }
 
+        case "debug": {
+          const ownership = focusService.debugOwnership();
+          return [
+            "🧭 Focus ownership",
+            `${ownership.manual ? "✅" : "❌"} Manual`,
+            `${ownership.duration ? "✅" : "❌"} Duration`,
+            `${ownership.recurring ? "✅" : "❌"} Recurring schedule`,
+            `${ownership.sleep ? "✅" : "❌"} Sleep Mode`,
+            `${ownership.breakActive ? "✅" : "❌"} Break active`,
+            `${ownership.safeMode ? "✅" : "❌"} Safe Mode (profile riêng)`,
+            `Focus profile cần tồn tại: ${ownership.profileRequired ? "CÓ" : "KHÔNG"}`,
+          ].join("\n");
+        }
+
         case "break": {
           codeforcesTasks?.assertBreakAllowed(ctx.message.telegramId);
           const durationArg = rest[0] ?? "15m";

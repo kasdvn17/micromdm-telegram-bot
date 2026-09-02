@@ -24,10 +24,13 @@ import { createQuoteScheduler } from "./scheduler/quoteScheduler";
 import { createBot } from "./telegram/bot";
 import { createRouter } from "./telegram/router";
 import { attachTaskTagInteraction } from "./telegram/taskTagInteraction";
+import { attachMenuInteraction } from "./telegram/menuInteraction";
 import { startWebhookServer } from "./enrollment/webhookServer";
 import { CommandDefinition } from "./types/command.types";
 
 import { createFocusCommand } from "./commands/normal/focus.command";
+import { createMenuCommand } from "./commands/normal/menu.command";
+import { createQuoteCommand } from "./commands/normal/quote.command";
 import { createNotifyCommand } from "./commands/normal/notify.command";
 import {
   createPingCommand,
@@ -113,12 +116,18 @@ async function main(): Promise<void> {
   // bind từ tin nhắn đầu tiên của Authorized Username.
   let primaryChatId: number | null = config.secrets.authorizedTelegramChatId ?? null;
   const notificationService = createNotificationService(bot, primaryChatId ?? undefined);
-  const quoteScheduler = createQuoteScheduler(notificationService);
+  const quoteScheduler = createQuoteScheduler(
+    notificationService,
+    undefined,
+    `${config.constants.dataDir}/quote-settings.json`,
+    config.constants.timeZone
+  );
 
   // 4. Auth
   const emergencyAuthService = createEmergencyAuthService(
     config.secrets.emergencyPassword,
-    config.secrets.authorizedTelegramUsername
+    config.secrets.authorizedTelegramUsername,
+    config.secrets.authorizedTelegramUserId
   );
 
   // 5. Scheduler + services phụ thuộc scheduler
@@ -240,9 +249,16 @@ async function main(): Promise<void> {
     createTaskCommand(codeforcesTaskService, focusService),
     createRefreshCommand(codeforcesTaskService, focusService),
     createStatusCommand(focusService, codeforcesTaskService, deviceInfoService),
+    createMenuCommand(focusService, codeforcesTaskService, deviceInfoService),
+    createQuoteCommand(quoteScheduler),
     createNotifyCommand(notificationService),
     createPingCommand(),
-    createHealthCommand(),
+    createHealthCommand([
+      config.constants.codeforcesTasksFilePath,
+      config.constants.scheduleFilePath,
+      config.constants.historyFilePath,
+      config.constants.blacklistFilePath,
+    ]),
     createWhoamiCommand(),
     createLogsCommand(config.constants.logDir),
     createHistoryCommand(config.constants.historyFilePath),
@@ -267,13 +283,23 @@ async function main(): Promise<void> {
   const router = createRouter(
     commands,
     config.secrets.authorizedTelegramUsername,
+    config.secrets.authorizedTelegramUserId,
     emergencyAuthService,
     bus
   );
   attachTaskTagInteraction(
     bot,
     codeforcesTaskService,
-    config.secrets.authorizedTelegramUsername
+    config.secrets.authorizedTelegramUsername,
+    config.secrets.authorizedTelegramUserId
+  );
+  attachMenuInteraction(
+    bot,
+    focusService,
+    codeforcesTaskService,
+    deviceInfoService,
+    config.secrets.authorizedTelegramUsername,
+    config.secrets.authorizedTelegramUserId
   );
 
   bot.on("message", (msg) => {
@@ -281,8 +307,10 @@ async function main(): Promise<void> {
     // (dùng để notificationService biết gửi notify chủ động về đâu).
     if (
       primaryChatId === null &&
-      msg.from?.username?.toLowerCase().replace(/^@/, "") ===
-      config.secrets.authorizedTelegramUsername
+      (config.secrets.authorizedTelegramUserId !== undefined
+        ? msg.from?.id === config.secrets.authorizedTelegramUserId
+        : msg.from?.username?.toLowerCase().replace(/^@/, "") ===
+          config.secrets.authorizedTelegramUsername)
     ) {
       primaryChatId = msg.chat.id;
       notificationService.setChatId(primaryChatId);

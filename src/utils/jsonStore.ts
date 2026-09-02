@@ -18,7 +18,23 @@ export function readJsonState<T>(filePath: string, fallback: T): T {
     if (raw.trim().length === 0) return fallback;
     return JSON.parse(raw) as T;
   } catch (err) {
-    getLogger().error("[jsonStore] Lỗi đọc file, dùng fallback", {
+    const backupPath = `${filePath}.bak`;
+    try {
+      if (fs.existsSync(backupPath)) {
+        const backup = JSON.parse(fs.readFileSync(backupPath, "utf-8")) as T;
+        getLogger().warn("[jsonStore] File chính lỗi, đã phục hồi từ backup", {
+          filePath,
+          backupPath,
+        });
+        return backup;
+      }
+    } catch (backupError) {
+      getLogger().error("[jsonStore] Backup cũng không đọc được", {
+        backupPath,
+        error: (backupError as Error).message,
+      });
+    }
+    getLogger().error("[jsonStore] Lỗi đọc file, không có backup hợp lệ; dùng fallback", {
       filePath,
       error: (err as Error).message,
     });
@@ -36,8 +52,20 @@ export function writeJsonState<T>(filePath: string, data: T): void {
     fs.mkdirSync(dir, { recursive: true });
   }
   const tmpPath = `${filePath}.tmp-${process.pid}-${Date.now()}`;
-  fs.writeFileSync(tmpPath, JSON.stringify(data, null, 2), "utf-8");
-  fs.renameSync(tmpPath, filePath);
+  try {
+    fs.writeFileSync(tmpPath, JSON.stringify(data, null, 2), "utf-8");
+    if (fs.existsSync(filePath)) {
+      try {
+        JSON.parse(fs.readFileSync(filePath, "utf-8"));
+        fs.copyFileSync(filePath, `${filePath}.bak`);
+      } catch {
+        // Không ghi đè backup tốt bằng một file chính đã hỏng.
+      }
+    }
+    fs.renameSync(tmpPath, filePath);
+  } finally {
+    if (fs.existsSync(tmpPath)) fs.unlinkSync(tmpPath);
+  }
 }
 
 /**

@@ -44,6 +44,8 @@ export interface CommandContext {
   parsed: ParsedCommand;
   /** args đã loại bỏ password (nếu tier != Normal) để handler không phải tự cắt */
   effectiveArgs: string[];
+  /** Hiển thị/cập nhật tiến độ tạm thời cho command chạy lâu. */
+  progress(text: string): Promise<void>;
 }
 
 export type CommandResponse =

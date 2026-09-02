@@ -28,6 +28,16 @@ export interface FocusStatus {
   sleepUnlock: SleepUnlockStatus;
 }
 
+export interface FocusOwnershipDebug {
+  manual: boolean;
+  duration: boolean;
+  recurring: boolean;
+  sleep: boolean;
+  breakActive: boolean;
+  safeMode: boolean;
+  profileRequired: boolean;
+}
+
 export interface FocusServiceApi {
   enable(durationMs?: number): Promise<void>;
   /** `unlockedForToday` chỉ được truyền true sau khi Codeforces gate xác nhận đủ 10 AC. */
@@ -79,6 +89,7 @@ export interface FocusServiceApi {
    * false, tránh tắt nhầm Focus nếu vẫn đang bật vì lý do khác.
    */
   isFocusActiveNow(): boolean;
+  debugOwnership(): FocusOwnershipDebug;
 }
 
 export function createFocusService(
@@ -91,7 +102,17 @@ export function createFocusService(
 ): FocusServiceApi {
   let manuallyActive = false; // bật không kèm duration (không có endAt)
 
-  const installFocusProfile = async (): Promise<void> => {
+  const currentOwners = (): string[] => [
+    ...(manuallyActive ? ["manual"] : []),
+    ...(scheduler.activeDurationSchedule() ? ["duration"] : []),
+    ...(scheduler.isWithinScheduleWindowToday() && !scheduler.isOnBreak() ? ["recurring"] : []),
+    ...(scheduler.isWithinSleepWindow() ? ["sleep"] : []),
+  ];
+
+  const installFocusProfile = async (
+    reason = "state-change",
+    pendingOwner?: "manual" | "duration"
+  ): Promise<void> => {
     const bundleIds = loadFocusBundleIds(restrictedAppsFilePath);
     const websites = loadFocusWebsites(focusWebsitesFilePath);
     const profile = buildRestrictedAppsProfile({
@@ -102,11 +123,15 @@ export function createFocusService(
     });
     await deviceCommands.installProfile(profile, FOCUS_PROFILE_IDENTIFIER);
     bus.publish({ type: "profile.installed", identifier: FOCUS_PROFILE_IDENTIFIER });
+    const owners = currentOwners();
+    if (pendingOwner && !owners.includes(pendingOwner)) owners.push(pendingOwner);
+    bus.publish({ type: "focus.profile.decision", action: "install", reason, owners });
   };
 
-  const removeFocusProfile = async (): Promise<void> => {
+  const removeFocusProfile = async (reason = "state-change"): Promise<void> => {
     await deviceCommands.removeProfile(FOCUS_PROFILE_IDENTIFIER);
     bus.publish({ type: "profile.removed", identifier: FOCUS_PROFILE_IDENTIFIER });
+    bus.publish({ type: "focus.profile.decision", action: "remove", reason, owners: currentOwners() });
   };
 
   /**
@@ -166,7 +191,10 @@ export function createFocusService(
       // có duy nhất 1 "nguồn sự thật" tại 1 thời điểm.
       scheduler.cancelAllDurations();
       manuallyActive = false;
-      await installFocusProfile();
+      await installFocusProfile(
+        durationMs ? "duration-enable" : "manual-enable",
+        durationMs ? "duration" : "manual"
+      );
       if (durationMs) {
         scheduler.scheduleDuration(durationMs);
       } else {
@@ -203,7 +231,7 @@ export function createFocusService(
           scheduler.clearBreak();
         }
         const focusStillActive = scheduler.isWithinScheduleWindowToday() && !scheduler.isOnBreak();
-        if (!focusStillActive) await removeFocusProfile();
+        if (!focusStillActive) await removeFocusProfile("sleep-override");
         bus.publish({ type: "focus.sleep.overridden" });
         return { sleepModeDisabled: true, focusStillActive };
       }
@@ -221,7 +249,7 @@ export function createFocusService(
       // Focus thủ công từ trước.
       scheduler.cancelAllDurations();
       manuallyActive = false;
-      await removeFocusProfile();
+      await removeFocusProfile("manual-disable");
       bus.publish({ type: "focus.disabled" });
       return { sleepModeDisabled: false, focusStillActive: false };
     },
@@ -267,7 +295,7 @@ export function createFocusService(
       requireNotWithinSchedule("cancel");
       scheduler.cancelAllDurations();
       manuallyActive = false;
-      await removeFocusProfile();
+      await removeFocusProfile("cancel");
       bus.publish({ type: "focus.disabled" });
     },
 
@@ -303,7 +331,7 @@ export function createFocusService(
       }
 
       scheduler.startBreak(ms);
-      if (!isFocusActiveNow()) await removeFocusProfile();
+      if (!isFocusActiveNow()) await removeFocusProfile("break-start");
       const usageAfter = scheduler.getBreakUsageToday();
       bus.publish({
         type: "focus.break.started",
@@ -344,7 +372,7 @@ export function createFocusService(
       if (wasActive) {
         scheduler.clearBreak();
         if (!isFocusActiveNow()) {
-          await removeFocusProfile();
+          await removeFocusProfile("schedule-skip");
           bus.publish({ type: "focus.disabled" });
         }
       }
@@ -378,7 +406,7 @@ export function createFocusService(
       // chỉ lưu vào file để áp dụng ở lần bật Focus kế tiếp.
       const appliedNow = isFocusActiveNow();
       if (appliedNow) {
-        await installFocusProfile();
+        await installFocusProfile("blocked-app-update");
       }
       return appliedNow;
     },
@@ -386,7 +414,7 @@ export function createFocusService(
       removeFocusBundleId(restrictedAppsFilePath, bundleId);
       const appliedNow = isFocusActiveNow();
       if (appliedNow) {
-        await installFocusProfile();
+        await installFocusProfile("blocked-app-update");
       }
       return appliedNow;
     },
@@ -398,7 +426,7 @@ export function createFocusService(
       addFocusWebsite(focusWebsitesFilePath, url);
       const appliedNow = isFocusActiveNow();
       if (appliedNow) {
-        await installFocusProfile();
+        await installFocusProfile("blocked-website-update");
       }
       return appliedNow;
     },
@@ -406,7 +434,7 @@ export function createFocusService(
       removeFocusWebsite(focusWebsitesFilePath, url);
       const appliedNow = isFocusActiveNow();
       if (appliedNow) {
-        await installFocusProfile();
+        await installFocusProfile("blocked-website-update");
       }
       return appliedNow;
     },
@@ -414,25 +442,40 @@ export function createFocusService(
       return loadFocusWebsites(focusWebsitesFilePath);
     },
 
+    debugOwnership(): FocusOwnershipDebug {
+      const duration = scheduler.activeDurationSchedule() !== null;
+      const recurring = scheduler.isWithinScheduleWindowToday() && !scheduler.isOnBreak();
+      const sleep = scheduler.isWithinSleepWindow();
+      return {
+        manual: manuallyActive,
+        duration,
+        recurring,
+        sleep,
+        breakActive: scheduler.isOnBreak(),
+        safeMode: safeModeService.isActive(),
+        profileRequired: manuallyActive || duration || recurring || sleep,
+      };
+    },
+
     // --- Nội bộ, dùng bởi main.ts wiring FocusScheduler ---
     async scheduleActivate(): Promise<void> {
-      await installFocusProfile();
+      await installFocusProfile("schedule-start");
       bus.publish({ type: "focus.enabled" });
     },
     async scheduleDeactivate(): Promise<void> {
       // Recurring/duration source vừa hết không đồng nghĩa profile được phép
       // gỡ: Sleep Mode hoặc một source Focus khác có thể vẫn đang giữ nó.
       if (!isFocusActiveNow()) {
-        await removeFocusProfile();
+        await removeFocusProfile("schedule-end");
         bus.publish({ type: "focus.disabled" });
       }
     },
     async sleepActivate(): Promise<void> {
-      await installFocusProfile();
+      await installFocusProfile("sleep-start");
       bus.publish({ type: "focus.sleep.enabled" });
     },
     async sleepDeactivate(): Promise<void> {
-      if (!isFocusActiveNow()) await removeFocusProfile();
+      if (!isFocusActiveNow()) await removeFocusProfile("sleep-end");
       bus.publish({ type: "focus.sleep.disabled" });
     },
     isFocusActiveNow,

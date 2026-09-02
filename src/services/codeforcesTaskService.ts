@@ -25,6 +25,7 @@ export interface CodeforcesTask {
 
 interface UserTaskState {
   tasks: CodeforcesTask[];
+  autoArchiveSolved?: boolean;
   /** Registry cho phép tag tồn tại ngay cả khi chưa gắn vào problem nào. */
   tags?: string[];
   breakGate?: {
@@ -36,6 +37,13 @@ interface UserTaskState {
     newestSubmissionId?: number;
     /** problemKey -> epoch seconds của submission OK đầu tiên. */
     firstAcceptedAt: Record<string, number>;
+  };
+  undo?: {
+    createdAt: string;
+    description: string;
+    tasks: CodeforcesTask[];
+    tags?: string[];
+    autoArchiveSolved?: boolean;
   };
 }
 
@@ -49,6 +57,15 @@ export interface RefreshResult {
   unavailablePublicProblems: CodeforcesTask[];
   ratingsUpdated: number;
   syncMode: "full" | "incremental";
+}
+
+export interface TaskStats {
+  solvedTotal: number;
+  solvedLast7Days: number;
+  active: number;
+  averageSolvedRating?: number;
+  streakDays: number;
+  tagCounts: Array<{ tag: string; count: number }>;
 }
 
 export interface DailyCodeforcesGateStatus {
@@ -87,6 +104,15 @@ export interface CodeforcesTaskServiceApi {
   removeTask(telegramId: number, problemReference: string): CodeforcesTask;
   clearActiveTasks(telegramId: number, tag?: string): number;
   archiveSolvedTasks(telegramId: number, problemReference?: string): number;
+  setAutoArchive(telegramId: number, enabled: boolean): void;
+  getAutoArchive(telegramId: number): boolean;
+  nextTask(telegramId: number, options?: { tag?: string; minRating?: number; maxRating?: number }): CodeforcesTask;
+  suggestTasks(
+    telegramId: number,
+    options?: { tag?: string; minRating?: number; maxRating?: number; limit?: number }
+  ): Promise<CodeforcesProblem[]>;
+  getStats(telegramId: number): TaskStats;
+  undoLastTaskChange(telegramId: number): string;
   refreshRatings(telegramId: number): Promise<number>;
   refresh(telegramId: number, options?: { full?: boolean }): Promise<RefreshResult>;
   getDailyGateStatus(
@@ -218,6 +244,16 @@ export function createCodeforcesTaskService(
   const getTasks = (state: CodeforcesTaskState, telegramId: number): CodeforcesTask[] =>
     state.users[String(telegramId)]?.tasks ?? [];
 
+  const captureUndo = (user: UserTaskState, description: string): void => {
+    user.undo = {
+      createdAt: now().toISOString(),
+      description,
+      tasks: user.tasks.map((task) => ({ ...task, tags: [...(task.tags ?? [])] })),
+      tags: user.tags ? [...user.tags] : undefined,
+      autoArchiveSolved: user.autoArchiveSolved,
+    };
+  };
+
   const getDailyGateStatus = (
     state: CodeforcesTaskState,
     telegramId: number,
@@ -275,6 +311,14 @@ export function createCodeforcesTaskService(
     }
     return normalizedHandle;
   };
+
+  const formatCountedTasks = (tasks: CodeforcesTask[]): string =>
+    tasks.length
+      ? tasks
+          .sort((a, b) => a.solvedAt!.localeCompare(b.solvedAt!))
+          .map((task) => `${task.contestId}${task.index} @ ${new Date(task.solvedAt!).toLocaleTimeString("vi-VN", { timeZone, hour: "2-digit", minute: "2-digit" })}`)
+          .join(", ")
+      : "chưa có";
 
   const problemUrl = (task: Pick<CodeforcesTask, "contestId" | "index">): string =>
     `https://codeforces.com/problemset/problem/${task.contestId}/${task.index}`;
@@ -421,6 +465,7 @@ export function createCodeforcesTaskService(
         ...user.tasks.flatMap((task) => (task.tags ?? []).map(normalizeTag)),
       ]);
       if (tags.has(tag)) throw new ValidationError(`Tag #${tag} đã tồn tại.`);
+      captureUndo(user, `tạo tag #${tag}`);
       tags.add(tag);
       user.tags = [...tags].sort((a, b) => a.localeCompare(b));
       writeJsonState(filePath, state);
@@ -437,6 +482,7 @@ export function createCodeforcesTaskService(
         ...user.tasks.flatMap((task) => (task.tags ?? []).map(normalizeTag)),
       ]);
       if (!known.has(tag)) throw new ValidationError(`Không tìm thấy tag #${tag}.`);
+      captureUndo(user, `xóa tag #${tag}`);
       let affected = 0;
       for (const task of user.tasks) {
         const before = task.tags?.length ?? 0;
@@ -462,6 +508,7 @@ export function createCodeforcesTaskService(
           `Không tìm thấy ${reference.contestId}${reference.index} trong task list.`
         );
       }
+      captureUndo(state.users[String(telegramId)], `chỉnh tag của ${task.contestId}${task.index}`);
 
       if (action === "clear") {
         task.tags = [];
@@ -493,6 +540,7 @@ export function createCodeforcesTaskService(
       if (tasks[index].status === "solved") {
         throw new ValidationError("Task đã AC không được xóa vì còn dùng để tính gate; hãy dùng /task archive.");
       }
+      captureUndo(state.users[String(telegramId)], `xóa task ${reference.contestId}${reference.index}`);
       const [removed] = tasks.splice(index, 1);
       writeJsonState(filePath, state);
       return removed;
@@ -504,6 +552,7 @@ export function createCodeforcesTaskService(
       if (!user) return 0;
       const tag = rawTag ? normalizeTag(rawTag) : undefined;
       const before = user.tasks.length;
+      captureUndo(user, tag ? `clear task #${tag}` : "clear task active");
       user.tasks = user.tasks.filter(
         (task) => task.status !== "active" || (tag && !(task.tags ?? []).includes(tag))
       );
@@ -524,9 +573,104 @@ export function createCodeforcesTaskService(
         );
       }
       const archivedAt = now().toISOString();
+      if (selected.length > 0) {
+        captureUndo(
+          state.users[String(telegramId)],
+          problemReference ? `archive ${problemReference}` : "archive task solved"
+        );
+      }
       for (const task of selected) task.archivedAt = archivedAt;
       if (selected.length > 0) writeJsonState(filePath, state);
       return selected.length;
+    },
+
+    setAutoArchive(telegramId: number, enabled: boolean): void {
+      const state = readState();
+      if (!state.users[String(telegramId)]) state.users[String(telegramId)] = { tasks: [] };
+      state.users[String(telegramId)].autoArchiveSolved = enabled;
+      writeJsonState(filePath, state);
+    },
+
+    getAutoArchive(telegramId: number): boolean {
+      return readState().users[String(telegramId)]?.autoArchiveSolved ?? false;
+    },
+
+    nextTask(telegramId, nextOptions = {}): CodeforcesTask {
+      const tag = nextOptions.tag ? normalizeTag(nextOptions.tag) : undefined;
+      const candidates = getTasks(readState(), telegramId)
+        .filter((task) => task.status === "active" && !task.archivedAt)
+        .filter((task) => !tag || (task.tags ?? []).includes(tag))
+        .filter((task) => nextOptions.minRating === undefined || (task.rating ?? 0) >= nextOptions.minRating)
+        .filter((task) => nextOptions.maxRating === undefined || (task.rating ?? Infinity) <= nextOptions.maxRating)
+        .sort((a, b) => a.addedAt.localeCompare(b.addedAt) || (a.rating ?? 0) - (b.rating ?? 0));
+      if (!candidates.length) throw new ValidationError("Không có task active phù hợp bộ lọc.");
+      return candidates[0];
+    },
+
+    async suggestTasks(telegramId, suggestOptions = {}): Promise<CodeforcesProblem[]> {
+      const state = readState();
+      const user = state.users[String(telegramId)];
+      const excluded = new Set((user?.tasks ?? []).map((task) => problemKey(task.contestId, task.index)));
+      for (const key of Object.keys(user?.submissionSync?.firstAcceptedAt ?? {})) excluded.add(key);
+      const tag = suggestOptions.tag?.trim().toLocaleLowerCase();
+      const min = suggestOptions.minRating ?? MIN_TASK_RATING_INCLUSIVE;
+      const max = suggestOptions.maxRating ?? min + 400;
+      const limit = Math.min(10, Math.max(1, suggestOptions.limit ?? 5));
+      const candidates = (await client.fetchResolvableProblems())
+        .filter((problem) => !!problem.contestId && Number.isFinite(problem.rating))
+        .filter((problem) => problem.rating! >= min && problem.rating! <= max)
+        .filter((problem) => !tag || problem.tags.some((value) => value.toLocaleLowerCase().includes(tag)))
+        .filter((problem) => !excluded.has(problemKey(problem.contestId!, problem.index)))
+        .sort((a, b) =>
+          Math.abs((a.rating ?? min) - min) - Math.abs((b.rating ?? min) - min) ||
+          (b.contestId ?? 0) - (a.contestId ?? 0)
+        );
+      if (candidates.length <= limit) return candidates;
+      const step = candidates.length / limit;
+      return Array.from({ length: limit }, (_, index) => candidates[Math.floor(index * step)]);
+    },
+
+    getStats(telegramId: number): TaskStats {
+      const tasks = getTasks(readState(), telegramId);
+      const solved = tasks.filter((task) => task.status === "solved" && task.solvedAt);
+      const cutoff = now().getTime() - 7 * 24 * 60 * 60 * 1000;
+      const solvedRatings = solved.flatMap((task) => Number.isFinite(task.rating) ? [task.rating!] : []);
+      const tagCounts = new Map<string, number>();
+      for (const task of solved) {
+        for (const tag of task.tags ?? []) tagCounts.set(tag, (tagCounts.get(tag) ?? 0) + 1);
+      }
+      const solvedDays = new Set(solved.map((task) => localDateStr(new Date(task.solvedAt!), timeZone)));
+      let streakDays = 0;
+      const cursor = new Date(now());
+      while (solvedDays.has(localDateStr(cursor, timeZone))) {
+        streakDays++;
+        cursor.setDate(cursor.getDate() - 1);
+      }
+      return {
+        solvedTotal: solved.length,
+        solvedLast7Days: solved.filter((task) => new Date(task.solvedAt!).getTime() >= cutoff).length,
+        active: tasks.filter((task) => task.status === "active" && !task.archivedAt).length,
+        averageSolvedRating: solvedRatings.length
+          ? Math.round(solvedRatings.reduce((sum, rating) => sum + rating, 0) / solvedRatings.length)
+          : undefined,
+        streakDays,
+        tagCounts: [...tagCounts.entries()]
+          .map(([tag, count]) => ({ tag, count }))
+          .sort((a, b) => b.count - a.count || a.tag.localeCompare(b.tag)),
+      };
+    },
+
+    undoLastTaskChange(telegramId: number): string {
+      const state = readState();
+      const user = state.users[String(telegramId)];
+      if (!user?.undo) throw new ValidationError("Không có thay đổi task nào để hoàn tác.");
+      const snapshot = user.undo;
+      user.tasks = snapshot.tasks.map((task) => ({ ...task, tags: [...(task.tags ?? [])] }));
+      user.tags = snapshot.tags ? [...snapshot.tags] : undefined;
+      user.autoArchiveSolved = snapshot.autoArchiveSolved;
+      delete user.undo;
+      writeJsonState(filePath, state);
+      return snapshot.description;
     },
 
     async refreshRatings(telegramId: number): Promise<number> {
@@ -608,6 +752,11 @@ export function createCodeforcesTaskService(
         }
       }
 
+      if (userState.autoArchiveSolved) {
+        const archivedAt = now().toISOString();
+        for (const task of newlySolved) task.archivedAt = archivedAt;
+      }
+
       writeJsonState(filePath, currentState);
       return {
         tasks: [...currentTasks],
@@ -626,11 +775,21 @@ export function createCodeforcesTaskService(
     },
 
     assertBreakAllowed(telegramId: number): void {
-      const status = getDailyGateStatus(readState(), telegramId);
+      const state = readState();
+      const status = getDailyGateStatus(state, telegramId);
       if (status.breakAllowed) return;
+      const lastBreakAt = state.users[String(telegramId)]?.breakGate?.date === status.date
+        ? new Date(state.users[String(telegramId)].breakGate!.lastBreakAt).getTime()
+        : 0;
+      const counted = getTasks(state, telegramId).filter((task) =>
+        task.status === "solved" && !!task.solvedAt &&
+        localDateStr(new Date(task.solvedAt), timeZone) === status.date &&
+        new Date(task.solvedAt).getTime() > lastBreakAt
+      );
 
       throw new ValidationError(
         `Không thể break: mới xác nhận ${status.acceptedSinceLastBreak}/${status.breakRequiredCount} task AC mới kể từ lần break gần nhất.\n` +
+          `Đã tính: ${formatCountedTasks(counted)}.\n` +
           `Hãy AC thêm ${status.breakRequiredCount - status.acceptedSinceLastBreak} bài rồi dùng /refresh để cập nhật. ` +
           "Bài phải nằm trong task list và được /refresh xác nhận."
       );
@@ -650,10 +809,21 @@ export function createCodeforcesTaskService(
     },
 
     assertFocusOffAllowed(telegramId: number, options?: FocusOffGateOptions): void {
-      const status = getDailyGateStatus(readState(), telegramId, now(), options);
+      const state = readState();
+      const currentTime = now();
+      const status = getDailyGateStatus(state, telegramId, currentTime, options);
       if (status.focusOffAllowed) return;
+      const sinceMs = options?.since ? new Date(options.since).getTime() : Number.NaN;
+      const counted = getTasks(state, telegramId).filter((task) => {
+        if (task.status !== "solved" || !task.solvedAt) return false;
+        const solved = new Date(task.solvedAt);
+        return Number.isFinite(sinceMs)
+          ? solved.getTime() >= sinceMs && solved.getTime() <= currentTime.getTime()
+          : localDateStr(solved, timeZone) === status.date;
+      });
       throw new ValidationError(
         `Không thể tắt Focus: mới xác nhận ${status.focusOffAcceptedCount}/${status.focusOffRequiredCount} task AC hợp lệ trong khoảng thời gian yêu cầu.\n` +
+          `Đã tính: ${formatCountedTasks(counted)}.\n` +
           `Hãy AC thêm ${status.focusOffRequiredCount - status.focusOffAcceptedCount} task rồi dùng /refresh để cập nhật.`
       );
     },

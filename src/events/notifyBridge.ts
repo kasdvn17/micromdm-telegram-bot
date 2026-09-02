@@ -4,6 +4,7 @@ import { NotificationServiceApi } from "../services/notificationService";
 
 function shouldNotify(event: AppEvent): boolean {
   if (event.type === "device.heartbeat") return false;
+  if (event.type === "focus.profile.decision") return false;
   if (
     (event.type === "mdm.command.queued" ||
       event.type === "mdm.command.acked" ||
@@ -41,6 +42,8 @@ function formatEvent(event: AppEvent): string {
       return `📄 Profile đã cài: ${event.identifier}`;
     case "profile.removed":
       return `🗑️ Profile đã gỡ: ${event.identifier}`;
+    case "focus.profile.decision":
+      return `🧭 Focus profile ${event.action}: ${event.reason} (${event.owners.join(", ") || "không có owner"})`;
     case "focus.enabled":
       return `🎯 Focus mode: BẬT${event.durationMs ? ` (${Math.round(event.durationMs / 60000)} phút)` : ""}`;
     case "focus.disabled":
@@ -117,8 +120,29 @@ export function attachNotifyBridge(
   bus: EventBus,
   notifier: NotificationServiceApi
 ): () => void {
+  const commandMessages = new Map<string, number>();
   return bus.subscribe(async (event) => {
     if (!shouldNotify(event)) return;
+    if (
+      event.type === "mdm.command.queued" ||
+      event.type === "mdm.command.acked" ||
+      event.type === "mdm.command.succeeded" ||
+      event.type === "mdm.command.failed"
+    ) {
+      const existing = commandMessages.get(event.commandUUID);
+      if (existing) {
+        await notifier.edit(existing, formatEvent(event));
+        if (event.type === "mdm.command.succeeded" || event.type === "mdm.command.failed") {
+          commandMessages.delete(event.commandUUID);
+        }
+        return;
+      }
+      const messageId = await notifier.send(formatEvent(event));
+      if (messageId && event.type !== "mdm.command.succeeded" && event.type !== "mdm.command.failed") {
+        commandMessages.set(event.commandUUID, messageId);
+      }
+      return;
+    }
     await notifier.send(formatEvent(event));
   });
 }

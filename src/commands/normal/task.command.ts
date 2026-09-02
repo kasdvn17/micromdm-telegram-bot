@@ -16,6 +16,7 @@ import {
   buildTagEditorReply,
   buildTagRemoveReply,
   buildTagSelectorReply,
+  buildTaskListReply,
   buildTaskTagPickerReply,
 } from "../../telegram/taskTagInteraction";
 
@@ -23,51 +24,6 @@ function formatRating(rating?: number, source?: string): string {
   if (!rating) return "Unrated";
   if (source === "kira") return `${rating} (external: Kira)`;
   return `${rating} (Codeforces)`;
-}
-
-function formatTaskList(
-  taskService: CodeforcesTaskServiceApi,
-  telegramId: number,
-  includeSolved: boolean,
-  tagFilter?: string,
-  archivedOnly = false
-): string {
-  const normalizedFilter = tagFilter?.trim().replace(/^#/, "").toLocaleLowerCase();
-  const tasks = taskService
-    .listTasks(telegramId)
-    .filter((task) => (archivedOnly ? !!task.archivedAt : !task.archivedAt))
-    .filter((task) => !normalizedFilter || (task.tags ?? []).includes(normalizedFilter));
-  if (tasks.length === 0) return "📋 Chưa có task Codeforces nào.";
-
-  const active = tasks.filter((task) => task.status === "active");
-  const solved = tasks.filter((task) => task.status === "solved");
-  if (!includeSolved && active.length === 0) {
-    return `✅ Không còn task active. Có ${solved.length} task đã AC; dùng /task list all để xem.`;
-  }
-  const formatOne = (task: (typeof tasks)[number]): string => {
-    const tags = (task.tags ?? []).map((tag) => `#${tag}`).join(" ");
-    return `${task.status === "active" ? "⏳" : "✅"} ${task.contestId}${task.index} - ${task.name} — ${formatRating(task.rating, task.ratingSource)}${tags ? ` — ${tags}` : ""}\n${taskService.problemUrl(task)}`;
-  };
-  const visible = includeSolved ? [...active, ...solved] : active;
-  const groups = new Map<string, typeof visible>();
-  for (const task of visible) {
-    const group = task.tags?.[0] ? `#${task.tags[0]}` : "Chưa gắn tag";
-    groups.set(group, [...(groups.get(group) ?? []), task]);
-  }
-  const groupedLines = [...groups.entries()].flatMap(([group, groupTasks]) => [
-    `\n🏷 ${group}`,
-    ...groupTasks.map(formatOne),
-  ]);
-  const lines = [
-    archivedOnly
-      ? `🗄 Codeforces archive: ${tasks.length} task`
-      : includeSolved
-      ? `📋 Codeforces tasks: ${active.length} active, ${solved.length} đã AC`
-      : `📋 Codeforces tasks: ${active.length} active`,
-    ...(normalizedFilter ? [`Bộ lọc: #${normalizedFilter}`] : []),
-    ...groupedLines,
-  ];
-  return lines.join("\n");
 }
 
 export function createTaskCommand(
@@ -103,6 +59,7 @@ export function createTaskCommand(
           }
 
           if (atomic) {
+            await ctx.progress(`📦 Đang kiểm tra atomic bulk: 0/${references.length}...`);
             const tasks = await taskService.addTasksAtomic(ctx.message.telegramId, references);
             const summary = [
               `📦 Atomic bulk: đã thêm đủ ${tasks.length}/${references.length} task.`,
@@ -111,25 +68,25 @@ export function createTaskCommand(
             return buildBulkTagPrompt(summary, ctx.message.telegramId, tasks);
           }
 
-          const added: string[] = [];
+          await ctx.progress(`📦 Đang kiểm tra ${references.length} problem...`);
           const addedTasks = [];
+          const added: string[] = [];
           const failed: string[] = [];
-          // Phải chạy tuần tự vì mỗi addTask đọc rồi ghi cùng một JSON state.
-          for (const reference of references) {
+          for (let index = 0; index < references.length; index++) {
+            const reference = references[index];
             try {
-              const task = await taskService.addTask(
-                ctx.message.telegramId,
-                reference
-              );
+              const task = await taskService.addTask(ctx.message.telegramId, reference);
+              addedTasks.push(task);
               added.push(
                 `✅ ${task.contestId}${task.index} - ${task.name} — ${formatRating(task.rating, task.ratingSource)}`
               );
-              addedTasks.push(task);
             } catch (error) {
-              const message =
-                error instanceof Error ? error.message.replace(/\s*\n\s*/g, " ") : String(error);
+              const message = error instanceof Error ? error.message.replace(/\s*\n\s*/g, " ") : String(error);
               failed.push(`❌ ${reference}: ${message}`);
             }
+            await ctx.progress(
+              `📦 Đang kiểm tra ${index + 1}/${references.length}...\n✅ ${added.length} thành công · ❌ ${failed.length} lỗi`
+            );
           }
           const summary = [
             `📦 Bulk add: ${added.length} thành công, ${failed.length} lỗi.`,
@@ -166,13 +123,91 @@ export function createTaskCommand(
           throw new ValidationError("Cú pháp: /task list [all] [tag]");
         }
         await taskService.refreshRatings(ctx.message.telegramId);
-        return formatTaskList(
-          taskService,
-          ctx.message.telegramId,
-          includeSolved || archivedOnly,
-          tagArgs[0],
-          archivedOnly
-        );
+        return buildTaskListReply(taskService, ctx.message.telegramId, {
+          mode: archivedOnly ? "archived" : includeSolved ? "all" : "active",
+          tag: tagArgs[0],
+        });
+      }
+      if (sub === "next") {
+        const numbers = rest.filter((value) => /^\d+$/.test(value)).map(Number);
+        const tag = rest.find((value) => !/^\d+$/.test(value));
+        if (numbers.length > 2 || rest.length > numbers.length + (tag ? 1 : 0)) {
+          throw new ValidationError("Cú pháp: /task next [tag] [minRating] [maxRating]");
+        }
+        const task = taskService.nextTask(ctx.message.telegramId, {
+          tag,
+          minRating: numbers[0],
+          maxRating: numbers[1],
+        });
+        return {
+          text: [
+            `🎯 Bài tiếp theo: ${task.contestId}${task.index}`,
+            `${task.name} — ${formatRating(task.rating, task.ratingSource)}`,
+            `Tags: ${(task.tags ?? []).map((value) => `#${value}`).join(" ") || "chưa có"}`,
+            taskService.problemUrl(task),
+          ].join("\n"),
+          options: {
+            reply_markup: {
+              inline_keyboard: [[{ text: "🔗 Mở Codeforces", url: taskService.problemUrl(task) }]],
+            },
+          },
+        };
+      }
+      if (sub === "suggest") {
+        const numbers = rest.filter((value) => /^\d+$/.test(value)).map(Number);
+        const tag = rest.find((value) => !/^\d+$/.test(value));
+        if (numbers.length > 2 || rest.length > numbers.length + (tag ? 1 : 0)) {
+          throw new ValidationError("Cú pháp: /task suggest [tag] [minRating] [maxRating]");
+        }
+        await ctx.progress("🔎 Đang tìm các bài chưa AC phù hợp...");
+        const problems = await taskService.suggestTasks(ctx.message.telegramId, {
+          tag,
+          minRating: numbers[0],
+          maxRating: numbers[1],
+          limit: 5,
+        });
+        if (!problems.length) return "🔎 Không tìm thấy bài phù hợp bộ lọc.";
+        return {
+          text: [
+            `💡 Gợi ý${tag ? ` cho #${tag}` : ""}:`,
+            ...problems.map((problem) =>
+              `• ${problem.contestId}${problem.index} — ${problem.name} — ${problem.rating ?? "Unrated"}`
+            ),
+          ].join("\n"),
+          options: {
+            reply_markup: {
+              inline_keyboard: [
+                ...problems.map((problem) => [{
+                  text: `➕ ${problem.contestId}${problem.index}`,
+                  callback_data: `cft:sa:${problem.contestId}:${problem.index}`,
+                }]),
+                [{
+                  text: "➕ Thêm tất cả",
+                  callback_data: `cft:sx:${problems.map((problem) => `${problem.contestId}${problem.index}`).join(",")}`,
+                }],
+              ],
+            },
+          },
+        };
+      }
+      if (sub === "stats") {
+        const stats = taskService.getStats(ctx.message.telegramId);
+        return [
+          "📈 Codeforces stats",
+          `Active: ${stats.active}`,
+          `Đã AC trong task list: ${stats.solvedTotal}`,
+          `7 ngày gần nhất: ${stats.solvedLast7Days}`,
+          `Rating AC trung bình: ${stats.averageSolvedRating ?? "chưa đủ dữ liệu"}`,
+          `Streak: ${stats.streakDays} ngày`,
+          `Tags: ${stats.tagCounts.length
+            ? stats.tagCounts.slice(0, 8).map((item) => `#${item.tag} ${item.count}`).join(" · ")
+            : "chưa có dữ liệu"}`,
+        ].join("\n");
+      }
+      if (sub === "undo") {
+        if (rest.length) throw new ValidationError("Cú pháp: /task undo");
+        const description = taskService.undoLastTaskChange(ctx.message.telegramId);
+        return `↩️ Đã hoàn tác: ${description}.`;
       }
       if (sub === "tagedit") {
         if (rest.length === 0) {
@@ -268,6 +303,17 @@ export function createTaskCommand(
         return `🧹 Đã xóa ${removed} task active${tag ? ` thuộc #${tag.replace(/^#/, "")}` : ""}.`;
       }
       if (sub === "archive") {
+        if (rest[0] === "auto") {
+          const mode = rest[1]?.toLowerCase();
+          if (!mode || mode === "status") {
+            return `🗄 Auto-archive: ${taskService.getAutoArchive(ctx.message.telegramId) ? "BẬT" : "TẮT"}.`;
+          }
+          if (!['on', 'off'].includes(mode) || rest.length > 2) {
+            throw new ValidationError("Cú pháp: /task archive auto on|off|status");
+          }
+          taskService.setAutoArchive(ctx.message.telegramId, mode === "on");
+          return `🗄 Auto-archive đã ${mode === "on" ? "BẬT" : "TẮT"}.`;
+        }
         if (rest.length > 1) throw new ValidationError("Cú pháp: /task archive [problemId|url]");
         const count = taskService.archiveSolvedTasks(ctx.message.telegramId, rest[0]);
         return `🗄 Đã archive ${count} task đã AC. Dữ liệu solvedAt vẫn được giữ để tính gate.`;

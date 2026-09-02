@@ -9,6 +9,7 @@ import { getLogger } from "../utils/logger";
 import { createHash, randomBytes } from "node:crypto";
 
 const PAGE_SIZE = 8;
+const TASK_LIST_PAGE_SIZE = 6;
 const CALLBACK_PREFIX = "cft";
 const REPLY_MARKER = "TAGEDIT";
 const CREATE_TAG_MARKER = "TAGCREATE";
@@ -108,6 +109,67 @@ export function buildBulkTagPrompt(
       },
     },
   };
+}
+
+type TaskListMode = "active" | "all" | "archived";
+
+function taskListPage(
+  taskService: CodeforcesTaskServiceApi,
+  telegramId: number,
+  mode: TaskListMode,
+  requestedPage: number,
+  tag?: string
+): { text: string; reply_markup: TelegramBot.InlineKeyboardMarkup } {
+  const normalizedTag = tag?.replace(/^#/, "").toLocaleLowerCase();
+  const all = taskService.listTasks(telegramId)
+    .filter((task) => mode === "archived" ? !!task.archivedAt : !task.archivedAt)
+    .filter((task) => mode !== "active" || task.status === "active")
+    .filter((task) => !normalizedTag || (task.tags ?? []).includes(normalizedTag));
+  const totalPages = Math.max(1, Math.ceil(all.length / TASK_LIST_PAGE_SIZE));
+  const page = Math.min(Math.max(0, requestedPage), totalPages - 1);
+  const visible = all.slice(page * TASK_LIST_PAGE_SIZE, (page + 1) * TASK_LIST_PAGE_SIZE);
+  const modeCode = mode === "active" ? "v" : mode === "all" ? "a" : "r";
+  const token = normalizedTag ? tagToken(normalizedTag) : "-";
+  const rows: TelegramBot.InlineKeyboardButton[][] = visible.map((task) => [{
+    text: `${task.status === "solved" ? "✅" : "⏳"} ${problemId(task)} · ${task.rating ?? "?"} · ${task.name}`.slice(0, 60),
+    url: taskService.problemUrl(task),
+  }]);
+  if (totalPages > 1) {
+    rows.push([
+      ...(page > 0 ? [{ text: "‹ Trước", callback_data: `${CALLBACK_PREFIX}:tl:${modeCode}:${page - 1}:${token}` }] : []),
+      { text: `${page + 1}/${totalPages}`, callback_data: `${CALLBACK_PREFIX}:noop` },
+      ...(page + 1 < totalPages ? [{ text: "Sau ›", callback_data: `${CALLBACK_PREFIX}:tl:${modeCode}:${page + 1}:${token}` }] : []),
+    ]);
+  }
+  rows.push([
+    { text: "Active", callback_data: `${CALLBACK_PREFIX}:tl:v:0:${token}` },
+    { text: "All", callback_data: `${CALLBACK_PREFIX}:tl:a:0:${token}` },
+    { text: "Archived", callback_data: `${CALLBACK_PREFIX}:tl:r:0:${token}` },
+  ]);
+  return {
+    text: [
+      `📋 Tasks · ${mode}${normalizedTag ? ` · #${normalizedTag}` : ""}`,
+      `${all.length} problem · trang ${page + 1}/${totalPages}`,
+      ...(visible.length ? visible.map((task) => {
+        const tags = (task.tags ?? []).map((value) => `#${value}`).join(" ");
+        return `${task.status === "solved" ? "✅" : "⏳"} ${problemId(task)} — ${task.name} — ${task.rating ?? "Unrated"}${tags ? ` — ${tags}` : ""}`;
+      }) : ["Không có task phù hợp."]),
+    ].join("\n"),
+    reply_markup: { inline_keyboard: rows },
+  };
+}
+
+export function buildTaskListReply(
+  taskService: CodeforcesTaskServiceApi,
+  telegramId: number,
+  options: { mode?: TaskListMode; tag?: string } = {}
+): CommandResponse {
+  const normalizedTag = options.tag?.replace(/^#/, "").toLocaleLowerCase();
+  if (normalizedTag && !taskService.listTags(telegramId).includes(normalizedTag)) {
+    return `⚠️ Không tìm thấy tag #${normalizedTag}.`;
+  }
+  const result = taskListPage(taskService, telegramId, options.mode ?? "active", 0, options.tag);
+  return { text: result.text, options: { reply_markup: result.reply_markup } };
 }
 
 function bulkTagSelector(
@@ -319,17 +381,20 @@ function taskDetail(
 export function attachTaskTagInteraction(
   bot: TelegramBot,
   taskService: CodeforcesTaskServiceApi,
-  authorizedUsername: string
+  authorizedUsername: string,
+  authorizedTelegramUserId?: number
 ): void {
   const authorized = authorizedUsername.toLowerCase().replace(/^@/, "");
-  const isAuthorized = (username?: string): boolean =>
-    !!username && username.toLowerCase().replace(/^@/, "") === authorized;
+  const isAuthorized = (username?: string, telegramId?: number): boolean =>
+    authorizedTelegramUserId !== undefined
+      ? telegramId === authorizedTelegramUserId
+      : !!username && username.toLowerCase().replace(/^@/, "") === authorized;
 
   bot.on("callback_query", (query) => {
     void (async () => {
       const data = query.data;
       if (!data?.startsWith(`${CALLBACK_PREFIX}:`)) return;
-      if (!isAuthorized(query.from.username)) {
+      if (!isAuthorized(query.from.username, query.from.id)) {
         await bot.answerCallbackQuery(query.id, { text: "Bạn không có quyền.", show_alert: true });
         return;
       }
@@ -387,6 +452,56 @@ export function attachTaskTagInteraction(
             { chat_id: message.chat.id, message_id: message.message_id }
           );
           await bot.answerCallbackQuery(query.id, { text: "Đã gắn tag." });
+          return;
+        }
+        if (action === "sa") {
+          const reference = `${parts[2]}${parts[3]}`;
+          await bot.answerCallbackQuery(query.id, { text: `Đang thêm ${reference}...` });
+          const task = await taskService.addTask(telegramId, reference);
+          const remainingRows = (message.reply_markup?.inline_keyboard ?? []).filter(
+            (row) => !row.some((button) => button.callback_data === data)
+          );
+          await bot.editMessageText(
+            `${message.text ?? "💡 Gợi ý"}\n\n✅ Đã thêm ${problemId(task)} — ${task.name}.`,
+            {
+              chat_id: message.chat.id,
+              message_id: message.message_id,
+              reply_markup: { inline_keyboard: remainingRows },
+            }
+          );
+          return;
+        }
+        if (action === "sx") {
+          await bot.answerCallbackQuery(query.id, { text: "Đang thêm tất cả..." });
+          const references = (parts[2] ?? "").split(",").filter(Boolean);
+          const added: string[] = [];
+          const failed: string[] = [];
+          for (const reference of references) {
+            try {
+              const task = await taskService.addTask(telegramId, reference);
+              added.push(problemId(task));
+            } catch {
+              failed.push(reference);
+            }
+          }
+          await bot.editMessageText(
+            `${message.text ?? "💡 Gợi ý"}\n\n✅ Đã thêm: ${added.join(", ") || "không có"}.${failed.length ? `\n❌ Lỗi/trùng: ${failed.join(", ")}.` : ""}`,
+            { chat_id: message.chat.id, message_id: message.message_id }
+          );
+          return;
+        }
+        if (action === "tl") {
+          const mode: TaskListMode = parts[2] === "a" ? "all" : parts[2] === "r" ? "archived" : "active";
+          const tag = parts[4] && parts[4] !== "-"
+            ? resolveTagToken(taskService, telegramId, parts[4])
+            : undefined;
+          const result = taskListPage(taskService, telegramId, mode, Number(parts[3]), tag);
+          await bot.editMessageText(result.text, {
+            chat_id: message.chat.id,
+            message_id: message.message_id,
+            reply_markup: result.reply_markup,
+          });
+          await bot.answerCallbackQuery(query.id);
           return;
         }
         if (action === "p") {
@@ -494,7 +609,7 @@ export function attachTaskTagInteraction(
     void (async () => {
       const prompt = msg.reply_to_message?.text;
       const bulkCreateMatch = prompt?.match(new RegExp(`^${BULK_TAG_CREATE_MARKER}\\s+([a-f0-9]+)`));
-      if (bulkCreateMatch && msg.text && isAuthorized(msg.from?.username)) {
+      if (bulkCreateMatch && msg.text && isAuthorized(msg.from?.username, msg.from?.id)) {
         try {
           const sessionToken = bulkCreateMatch[1];
           const session = getBulkTagSession(sessionToken, msg.from!.id);
@@ -512,7 +627,7 @@ export function attachTaskTagInteraction(
         }
         return;
       }
-      if (prompt?.startsWith(CREATE_TAG_MARKER) && msg.text && isAuthorized(msg.from?.username)) {
+      if (prompt?.startsWith(CREATE_TAG_MARKER) && msg.text && isAuthorized(msg.from?.username, msg.from?.id)) {
         try {
           const tag = taskService.createTag(msg.from!.id, msg.text);
           const reply = buildTagEditorReply(taskService, msg.from!.id, tag);
@@ -524,7 +639,7 @@ export function attachTaskTagInteraction(
         return;
       }
       const match = prompt?.match(new RegExp(`^${REPLY_MARKER}\\s+(\\d+[A-Z][A-Z0-9]*)`));
-      if (!match || !msg.text || !isAuthorized(msg.from?.username)) return;
+      if (!match || !msg.text || !isAuthorized(msg.from?.username, msg.from?.id)) return;
       try {
         const task = taskService.editTaskTag(msg.from!.id, match[1], "add", msg.text);
         await bot.sendMessage(msg.chat.id, `🏷 ${problemId(task)}: ${tagSummary(task)}.`);

@@ -10,6 +10,7 @@ import {
   buildBulkTagPrompt,
   buildTagEditorReply,
   buildTagRemoveReply,
+  buildTaskListReply,
   buildTaskTagPickerReply,
 } from "../src/telegram/taskTagInteraction";
 
@@ -29,6 +30,48 @@ test("bulk tag prompt offers yes and no only when tasks were added", () => {
     }
   }
   assert.equal(buildBulkTagPrompt("📦 No task", 42, []), "📦 No task");
+});
+
+test("task list pagination, next task, stats and auto-archive settings use JSON state", () => {
+  const tasks = Array.from({ length: 8 }, (_, index) => ({
+    contestId: 3000 + index,
+    index: "A",
+    name: `Problem ${index}`,
+    status: index < 2 ? "solved" : "active",
+    addedAt: `2026-09-0${index + 1}T00:00:00.000Z`,
+    solvedAt: index < 2 ? `2026-09-0${index + 1}T01:00:00.000Z` : undefined,
+    rating: 1600 + index * 100,
+    tags: index % 2 === 0 ? ["dp"] : ["graph"],
+  }));
+  const data = fixture({ users: { "42": { tasks } } });
+  try {
+    const service = createCodeforcesTaskService(data.filePath, "tourist", undefined, {
+      now: () => new Date("2026-09-02T12:00:00.000Z"),
+      timeZone: "UTC",
+    });
+    const list = buildTaskListReply(service, 42, { mode: "all" });
+    assert.notEqual(typeof list, "string");
+    if (typeof list !== "string") {
+      const keyboard = list.options?.reply_markup;
+      assert.ok(keyboard && "inline_keyboard" in keyboard);
+      if (keyboard && "inline_keyboard" in keyboard) {
+        assert.ok(keyboard.inline_keyboard.some((row) => row.some((button) => button.text === "1/2")));
+      }
+    }
+    assert.equal(service.nextTask(42, { tag: "dp" }).contestId, 3002);
+    const stats = service.getStats(42);
+    assert.equal(stats.solvedTotal, 2);
+    assert.equal(stats.active, 6);
+    assert.equal(stats.averageSolvedRating, 1650);
+    service.setAutoArchive(42, true);
+    assert.equal(service.getAutoArchive(42), true);
+    service.removeTask(42, "3002A");
+    assert.equal(service.listTasks(42).some((task) => task.contestId === 3002), false);
+    assert.match(service.undoLastTaskChange(42), /xóa task/);
+    assert.equal(service.listTasks(42).some((task) => task.contestId === 3002), true);
+  } finally {
+    data.cleanup();
+  }
 });
 
 function fixture(state: unknown): { filePath: string; cleanup: () => void } {

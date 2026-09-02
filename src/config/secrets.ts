@@ -15,6 +15,9 @@ export interface Secrets {
    */
   authorizedTelegramUsername: string;
 
+  /** Numeric user ID ổn định hơn username; optional để tương thích cấu hình cũ. */
+  authorizedTelegramUserId?: number;
+
   /** Chat ID nhận notification chủ động; có thể bỏ trống và bind từ tin nhắn đầu tiên. */
   authorizedTelegramChatId?: number;
 
@@ -81,6 +84,11 @@ export function loadSecrets(env: NodeJS.ProcessEnv = process.env): Secrets {
       "[config/secrets] AUTHORIZED_TELEGRAM_CHAT_ID phải là một số nguyên Telegram chat ID hợp lệ."
     );
   }
+  const userIdRaw = env.AUTHORIZED_TELEGRAM_USER_ID?.trim();
+  const authorizedTelegramUserId = userIdRaw ? Number(userIdRaw) : undefined;
+  if (userIdRaw && (!Number.isSafeInteger(authorizedTelegramUserId) || authorizedTelegramUserId! <= 0)) {
+    throw new Error("[config/secrets] AUTHORIZED_TELEGRAM_USER_ID phải là số nguyên dương.");
+  }
 
   return {
     telegramBotToken: env.TELEGRAM_BOT_TOKEN!.trim(),
@@ -88,6 +96,7 @@ export function loadSecrets(env: NodeJS.ProcessEnv = process.env): Secrets {
     authorizedTelegramUsername: env.AUTHORIZED_TELEGRAM_USERNAME!.trim()
       .replace(/^@/, "")
       .toLowerCase(),
+    authorizedTelegramUserId,
     authorizedTelegramChatId,
     emergencyPassword: env.EMERGENCY_PASSWORD!,
     microMdmUrl: env.MICROMDM_URL!.trim().replace(/\/+$/, ""),

@@ -15,13 +15,28 @@ export function createPingCommand(): CommandDefinition {
   };
 }
 
-export function createHealthCommand(): CommandDefinition {
+export function createHealthCommand(stateFiles: readonly string[] = []): CommandDefinition {
   return {
     name: "health",
     tier: AuthTier.Normal,
     handler: async (): Promise<string> => {
       const uptimeSec = Math.floor((Date.now() - START_TIME) / 1000);
-      return `✅ Bot đang chạy. Uptime: ${uptimeSec}s.`;
+      const readable = stateFiles.filter((file) => {
+        try {
+          if (!fs.existsSync(file)) return true;
+          JSON.parse(fs.readFileSync(file, "utf-8"));
+          return true;
+        } catch {
+          return false;
+        }
+      }).length;
+      const rssMb = Math.round(process.memoryUsage().rss / 1024 / 1024);
+      return [
+        "✅ Bot đang chạy.",
+        `Uptime: ${uptimeSec}s`,
+        `Memory RSS: ${rssMb} MB`,
+        `JSON state: ${readable}/${stateFiles.length} đọc được`,
+      ].join("\n");
     },
   };
 }

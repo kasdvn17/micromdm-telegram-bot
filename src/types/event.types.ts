@@ -22,6 +22,12 @@ export type AppEvent =
   | { type: "device.offline"; details?: Record<string, unknown> }
   | { type: "profile.installed"; identifier: string }
   | { type: "profile.removed"; identifier: string }
+  | {
+      type: "focus.profile.decision";
+      action: "install" | "remove";
+      reason: string;
+      owners: string[];
+    }
   | { type: "focus.enabled"; durationMs?: number }
   | { type: "focus.disabled" }
   | { type: "focus.sleep.enabled" }

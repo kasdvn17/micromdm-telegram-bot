@@ -12,6 +12,7 @@ Quy ước: lệnh Emergency/Two-Factor đặt password ngay sau tên lệnh:
 ── NORMAL ──
 
 /focus on|off|status|remaining|extend <d>|cancel
+/focus debug — xem nguồn nào đang giữ profile Focus
 /focus <duration> — bật Focus theo thời lượng, vd /focus 90m
 /focus break [d] — cần 1 task AC mới kể từ break trước
 /focus off — cần 7 task/ngày; Sleep Mode cần 3 task từ 22:00
@@ -31,6 +32,9 @@ Quy ước: lệnh Emergency/Two-Factor đặt password ngay sau tên lệnh:
 /task list all — xem cả task đã AC
 /task list [all] [tag] — lọc và nhóm task theo tag
 /task list archived [tag] — xem task đã archive
+/task next [tag] [min] [max] — chọn task active tiếp theo
+/task suggest [tag] [min] [max] — gợi ý bài mới chưa AC
+/task stats — thống kê tiến độ
 /task tag add [tag] — tạo tag rồi chọn problem
 /task tag edit [tag] — toggle tag trên toàn bộ problem
 /task tag remove [tag] [id] — gỡ từng problem hoặc xóa tag toàn bộ
@@ -39,11 +43,17 @@ Quy ước: lệnh Emergency/Two-Factor đặt password ngay sau tên lệnh:
 /task remove <id> — xóa task active
 /task clear [tag] CONFIRM — xóa các task active
 /task archive [id] — ẩn task đã AC nhưng giữ solvedAt
+/task archive auto on|off|status
+/task undo — hoàn tác thay đổi task gần nhất
 /task status — tiến độ task, break và Focus off
 /refresh [full] — incremental mặc định, full để quét lại toàn bộ
 /status — dashboard Focus, task, gate, break và thiết bị
+/menu — dashboard có nút bấm
 
 /notify on|off|test
+/quote on|off|now|status
+/quote snooze <duration>
+/quote quiet <start> <end>|off
 /blacklist add <bundleId>
 /blacklist list
 /blacklist blwadd <website>
