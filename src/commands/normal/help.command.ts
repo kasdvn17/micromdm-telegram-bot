@@ -22,6 +22,7 @@ Quy ước: lệnh Emergency/Two-Factor đặt password ngay sau tên lệnh:
 /focus blockadd <bundleId>
 /focus blocklist
 /focus blwadd <website>
+/focus blwremove <website>
 /focus blwlist
 
 /task add <problem> — chỉ nhận bài rating >= 1600

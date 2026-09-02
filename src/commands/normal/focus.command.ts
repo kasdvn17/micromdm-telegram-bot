@@ -186,7 +186,12 @@ export function createFocusCommand(
         }
 
         case "blwremove": {
-          throw new ValidationError("Lệnh /focus blwremove đã bị vô hiệu hóa.");
+          const url = rest[0];
+          if (!url) throw new ValidationError("Cú pháp: /focus blwremove <website>");
+          const appliedNow = await focusService.removeBlockWebsite(url);
+          return appliedNow
+            ? `✅ Đã xóa website "${url}" khỏi danh sách chặn và cập nhật profile NGAY (Focus đang bật).`
+            : `✅ Đã xóa website "${url}" khỏi danh sách chặn. Thay đổi sẽ áp dụng khi bật Focus lần tới.`;
         }
 
         case "blwlist": {
@@ -198,7 +203,7 @@ export function createFocusCommand(
 
         default: {
           // không match subcommand nào -> thử parse như duration, vd "/focus 90m"
-          if (!sub) throw new ValidationError("Cú pháp: /focus on|off|status|remaining|extend <d>|cancel|break [d]|schedule|blockadd|blocklist|blwadd|blwlist ...");
+          if (!sub) throw new ValidationError("Cú pháp: /focus on|off|status|remaining|extend <d>|cancel|break [d]|schedule|blockadd|blocklist|blwadd|blwremove|blwlist ...");
           const ms = parseDurationToMs(sub);
           await focusService.enable(ms);
           return `🎯 Focus mode đã BẬT trong ${formatDuration(ms)}.`;

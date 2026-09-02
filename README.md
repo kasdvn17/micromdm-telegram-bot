@@ -43,6 +43,7 @@ Emergency không yêu cầu đúng username; vì vậy `EMERGENCY_PASSWORD` ph�
 /focus blockadd <bundleId>
 /focus blocklist
 /focus blwadd <website>
+/focus blwremove <website>
 /focus blwlist
 
 /task add <problem>
