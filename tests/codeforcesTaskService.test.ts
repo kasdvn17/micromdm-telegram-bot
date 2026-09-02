@@ -145,6 +145,9 @@ test("atomic bulk writes nothing when one task is below rating threshold", async
           },
         }), { status: 200 });
       }
+      if (url.includes("contests.json")) {
+        return new Response(JSON.stringify([]), { status: 200 });
+      }
       throw new Error(`Unexpected URL: ${url}`);
     },
   });
@@ -152,6 +155,44 @@ test("atomic bulk writes nothing when one task is below rating threshold", async
     const service = createCodeforcesTaskService(data.filePath, "tourist", client);
     await assert.rejects(() => service.addTasksAtomic(42, ["100A", "100B"]), />= 1600/);
     assert.equal(service.listTasks(42).length, 0);
+  } finally {
+    data.cleanup();
+  }
+});
+
+test("task add resolves archived problems omitted by the official problemset API", async () => {
+  const data = fixture({ users: {} });
+  const client = new CodeforcesClient({
+    minRequestIntervalMs: 0,
+    fetchImpl: async (url) => {
+      if (url.includes("problemset.problems")) {
+        return new Response(JSON.stringify({
+          status: "OK",
+          result: {
+            problems: [
+              { contestId: 1350, index: "A", name: "Orac and Factors", type: "PROGRAMMING", rating: 900, tags: [] },
+            ],
+            problemStatistics: [],
+          },
+        }), { status: 200 });
+      }
+      if (url.includes("contests.json")) {
+        return new Response(JSON.stringify([{
+          id: 1350,
+          type: "Div2",
+          name: "Codeforces Round 641",
+          problems: [{ index: "C", name: "Orac and LCM", rating: 1600 }],
+        }]), { status: 200 });
+      }
+      throw new Error(`Unexpected URL: ${url}`);
+    },
+  });
+  try {
+    const service = createCodeforcesTaskService(data.filePath, "tourist", client);
+    const task = await service.addTask(42, "1350C");
+    assert.equal(task.name, "Orac and LCM");
+    assert.equal(task.rating, 1600);
+    assert.equal(task.ratingSource, "kira");
   } finally {
     data.cleanup();
   }
@@ -200,6 +241,9 @@ test("refresh stores earliest AC then switches to incremental submission sync", 
             problemStatistics: [],
           },
         }), { status: 200 });
+      }
+      if (url.includes("contests.json")) {
+        return new Response(JSON.stringify([]), { status: 200 });
       }
       const count = new URL(url).searchParams.get("count") ?? "";
       userStatusCounts.push(count);

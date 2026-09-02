@@ -35,12 +35,20 @@ export interface CodeforcesClientOptions {
 
 interface KiraProblem {
   index?: string;
+  name?: string;
   rating?: number | string | null;
 }
 
 interface KiraContest {
   id?: number;
   problems?: Array<KiraProblem | null> | null;
+}
+
+interface KiraProblemMetadata {
+  contestId: number;
+  index: string;
+  name: string;
+  rating?: number;
 }
 
 function delay(ms: number): Promise<void> {
@@ -113,8 +121,11 @@ export class CodeforcesClient {
   private nextRequestAt = 0;
   private publicProblemsCache: { expiresAt: number; problems: CodeforcesProblem[] } | null = null;
   private publicProblemsInFlight: Promise<CodeforcesProblem[]> | null = null;
-  private kiraRatingsCache: { expiresAt: number; ratings: Map<string, number> } | null = null;
-  private kiraRatingsInFlight: Promise<Map<string, number>> | null = null;
+  private kiraProblemsCache: {
+    expiresAt: number;
+    problems: Map<string, KiraProblemMetadata>;
+  } | null = null;
+  private kiraProblemsInFlight: Promise<Map<string, KiraProblemMetadata>> | null = null;
 
   constructor(options: CodeforcesClientOptions = {}) {
     const pageSize = options.pageSize ?? DEFAULT_PAGE_SIZE;
@@ -232,6 +243,41 @@ export class CodeforcesClient {
   }
 
   /**
+   * Danh sách problem có thể resolve. Codeforces đôi lúc loại một phần archive khỏi
+   * problemset.problems; khi đó dùng metadata Kira để khôi phục ID, tên và rating.
+   */
+  async fetchResolvableProblems(forceRefresh = false): Promise<CodeforcesProblem[]> {
+    const official = await this.fetchPublicProblems(forceRefresh);
+    try {
+      const external = await this.fetchKiraProblems(forceRefresh);
+      const known = new Set(
+        official
+          .filter((problem) => problem.contestId)
+          .map((problem) => `${problem.contestId}:${problem.index.toUpperCase()}`)
+      );
+      const fallback: CodeforcesProblem[] = [];
+      for (const [key, problem] of external) {
+        if (known.has(key)) continue;
+        fallback.push({
+          contestId: problem.contestId,
+          index: problem.index,
+          name: problem.name,
+          type: "PROGRAMMING",
+          rating: problem.rating,
+          tags: [],
+        });
+      }
+      return [...official, ...fallback];
+    } catch (err) {
+      getLogger().warn("[codeforces] Không lấy được metadata problem external", {
+        urls: this.kiraRatingsUrls,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return official;
+    }
+  }
+
+  /**
    * true khi bài thuộc problemset public hiện tại VÀ user có ít nhất một
    * submission Accepted (verdict OK) cho đúng cặp contestId + index.
    */
@@ -250,7 +296,7 @@ export class CodeforcesClient {
       return false;
     }
 
-    const publicProblems = await this.fetchPublicProblems();
+    const publicProblems = await this.fetchResolvableProblems();
     return publicProblems.some(
       (problem) =>
         problem.contestId === contestId &&
@@ -260,7 +306,7 @@ export class CodeforcesClient {
 
   /**
    * Lấy difficulty theo thứ tự: Codeforces official -> dataset public của
-   * cf.kira924age.com -> unrated. Dataset external được cache 24 giờ mặc định.
+   * cf.kira924age.com -> unrated. Dataset external được cache 1 giờ mặc định.
    */
   async getProblemRating(
     contestId: number,
@@ -274,21 +320,27 @@ export class CodeforcesClient {
       (item) =>
         item.contestId === contestId && item.index.toUpperCase() === normalizedIndex
     );
-    if (!problem) {
-      throw new ValidationError(`Không tìm thấy bài public ${contestId}${normalizedIndex}.`);
-    }
-    if (Number.isFinite(problem.rating)) {
+    if (problem && Number.isFinite(problem.rating)) {
       return { rating: problem.rating, source: "codeforces" };
     }
 
     try {
-      const externalRating = (await this.fetchKiraRatings()).get(
+      const externalProblem = (await this.fetchKiraProblems()).get(
         `${contestId}:${normalizedIndex}`
       );
-      return Number.isFinite(externalRating)
-        ? { rating: externalRating, source: "kira" }
+      if (!problem && !externalProblem) {
+        throw new ValidationError(`Không tìm thấy bài public ${contestId}${normalizedIndex}.`);
+      }
+      return Number.isFinite(externalProblem?.rating)
+        ? { rating: externalProblem!.rating, source: "kira" }
         : { source: "unrated" };
     } catch (err) {
+      if (err instanceof ValidationError) throw err;
+      if (!problem) {
+        throw new ValidationError(
+          `Không thể xác minh bài public ${contestId}${normalizedIndex} vì nguồn metadata external đang lỗi.`
+        );
+      }
       // External fallback không được làm /task add thất bại khi nguồn tạm offline.
       getLogger().warn("[codeforces] Không lấy được rating external", {
         contestId,
@@ -300,17 +352,19 @@ export class CodeforcesClient {
     }
   }
 
-  private async fetchKiraRatings(forceRefresh = false): Promise<Map<string, number>> {
+  private async fetchKiraProblems(
+    forceRefresh = false
+  ): Promise<Map<string, KiraProblemMetadata>> {
     if (
       !forceRefresh &&
-      this.kiraRatingsCache &&
-      this.kiraRatingsCache.expiresAt > Date.now()
+      this.kiraProblemsCache &&
+      this.kiraProblemsCache.expiresAt > Date.now()
     ) {
-      return this.kiraRatingsCache.ratings;
+      return this.kiraProblemsCache.problems;
     }
-    if (!forceRefresh && this.kiraRatingsInFlight) return this.kiraRatingsInFlight;
+    if (!forceRefresh && this.kiraProblemsInFlight) return this.kiraProblemsInFlight;
 
-    const request = (async (): Promise<Map<string, number>> => {
+    const request = (async (): Promise<Map<string, KiraProblemMetadata>> => {
       let contests: KiraContest[] | null = null;
       const errors: string[] = [];
       for (const url of this.kiraRatingsUrls) {
@@ -335,27 +389,32 @@ export class CodeforcesClient {
         );
       }
 
-      const ratings = new Map<string, number>();
+      const problems = new Map<string, KiraProblemMetadata>();
       for (const contest of contests) {
         if (!Number.isInteger(contest?.id) || !Array.isArray(contest.problems)) continue;
         for (const problem of contest.problems) {
-          if (!problem?.index) continue;
+          if (!problem?.index || !problem.name?.trim()) continue;
+          const index = problem.index.trim().toUpperCase();
           const rating = Number(problem.rating);
-          if (!Number.isFinite(rating) || rating <= 0) continue;
-          ratings.set(`${contest.id}:${problem.index.trim().toUpperCase()}`, rating);
+          problems.set(`${contest.id}:${index}`, {
+            contestId: contest.id!,
+            index,
+            name: problem.name.trim(),
+            rating: Number.isFinite(rating) && rating > 0 ? rating : undefined,
+          });
         }
       }
-      this.kiraRatingsCache = {
+      this.kiraProblemsCache = {
         expiresAt: Date.now() + this.externalRatingsCacheTtlMs,
-        ratings,
+        problems,
       };
-      return ratings;
+      return problems;
     })();
-    this.kiraRatingsInFlight = request;
+    this.kiraProblemsInFlight = request;
     try {
       return await request;
     } finally {
-      if (this.kiraRatingsInFlight === request) this.kiraRatingsInFlight = null;
+      if (this.kiraProblemsInFlight === request) this.kiraProblemsInFlight = null;
     }
   }
 
@@ -433,6 +492,12 @@ export function fetchAllUserSubmissions(handle: string): Promise<CodeforcesSubmi
 
 export function fetchPublicCodeforcesProblems(forceRefresh = false): Promise<CodeforcesProblem[]> {
   return defaultClient.fetchPublicProblems(forceRefresh);
+}
+
+export function fetchResolvableCodeforcesProblems(
+  forceRefresh = false
+): Promise<CodeforcesProblem[]> {
+  return defaultClient.fetchResolvableProblems(forceRefresh);
 }
 
 export function hasUserSolvedPublicProblem(

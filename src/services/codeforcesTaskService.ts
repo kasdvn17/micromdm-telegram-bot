@@ -309,7 +309,7 @@ export function createCodeforcesTaskService(
     async addTask(telegramId: number, problemQuery: string): Promise<CodeforcesTask> {
       requireHandle();
       const problem = resolvePublicProblem(
-        await client.fetchPublicProblems(),
+        await client.fetchResolvableProblems(),
         problemQuery
       );
       const resolvedRating = await client.getProblemRating(problem.contestId!, problem.index);
@@ -361,7 +361,7 @@ export function createCodeforcesTaskService(
       if (problemReferences.length === 0) {
         throw new ValidationError("Danh sách bulk không được để trống.");
       }
-      const problems = await client.fetchPublicProblems();
+      const problems = await client.fetchResolvableProblems();
       const state = readState();
       const tasks = getTasks(state, telegramId);
       const existingKeys = new Set(tasks.map((task) => problemKey(task.contestId, task.index)));
@@ -557,7 +557,7 @@ export function createCodeforcesTaskService(
         full
           ? client.fetchAllUserSubmissions(codeforcesHandle)
           : client.fetchRecentUserSubmissions(codeforcesHandle),
-        client.fetchPublicProblems(),
+        client.fetchResolvableProblems(),
       ]);
       const firstAcceptedAt = full
         ? ({} as Record<string, number>)
