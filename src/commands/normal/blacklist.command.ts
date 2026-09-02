@@ -31,12 +31,16 @@ export function createBlacklistCommand(blacklistService: BlacklistServiceApi): C
           if (!value) throw new ValidationError("Cú pháp: /blacklist blwadd <website>");
           await blacklistService.addWebsite(value);
           return `🚫 Đã thêm website "${value}" vào blacklist.`;
-        case "blwlist":
-          throw new ValidationError(
-            "⛔ /blacklist blwlist đã bị vô hiệu hoá."
-          );
+        case "blwlist": {
+          const websites = await blacklistService.listWebsites();
+          return websites.length === 0
+            ? "📋 Danh sách website blacklist đang trống."
+            : websites.map((website) => `- ${website}`).join("\n");
+        }
         default:
-          throw new ValidationError("Cú pháp: /blacklist add <bundleId>|list|blwadd <website>");
+          throw new ValidationError(
+            "Cú pháp: /blacklist add <bundleId>|list|blwadd <website>|blwlist"
+          );
       }
     },
   };

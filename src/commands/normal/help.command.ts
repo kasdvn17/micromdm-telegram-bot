@@ -45,7 +45,7 @@ Quy ước: lệnh Emergency/Two-Factor đặt password ngay sau tên lệnh:
 /blacklist add <bundleId>
 /blacklist list
 /blacklist blwadd <website>
-/blacklist blwlist — đã vô hiệu hoá
+/blacklist blwlist
 /search <bundleId1> [bundleId2]...
 
 /ping — kiểm tra bot

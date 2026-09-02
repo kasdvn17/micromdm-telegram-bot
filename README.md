@@ -63,7 +63,7 @@ Emergency không yêu cầu đúng username; vì vậy `EMERGENCY_PASSWORD` ph�
 /blacklist add <bundleId>
 /blacklist list
 /blacklist blwadd <website>
-/blacklist blwlist # đã vô hiệu hóa
+/blacklist blwlist
 /search <bundleId1> [bundleId2]...
 
 /ping
