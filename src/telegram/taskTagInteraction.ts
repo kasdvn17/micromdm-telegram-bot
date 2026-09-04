@@ -150,7 +150,8 @@ function taskListPage(
   const all = taskService.listTasks(telegramId)
     .filter((task) => mode === "archived" ? !!task.archivedAt : !task.archivedAt)
     .filter((task) => mode !== "active" || task.status === "active")
-    .filter((task) => taskMatchesTag(task, normalizedTag));
+    .filter((task) => taskMatchesTag(task, normalizedTag))
+    .sort((a, b) => Number(!!b.prioritizedAt) - Number(!!a.prioritizedAt));
   const totalPages = Math.max(1, Math.ceil(all.length / TASK_LIST_PAGE_SIZE));
   const page = Math.min(Math.max(0, requestedPage), totalPages - 1);
   const visible = all.slice(page * TASK_LIST_PAGE_SIZE, (page + 1) * TASK_LIST_PAGE_SIZE);

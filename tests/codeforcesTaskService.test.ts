@@ -76,6 +76,15 @@ test("task list pagination, next task, stats and auto-archive settings use JSON 
     assert.equal(service.prioritizeTask(42, "3004A").contestId, 3004);
     assert.equal(service.nextTask(42, { tag: "dp" }).contestId, 3004);
     assert.equal(service.nextTask(42, { tag: "dp", shuffle: true }).contestId, 3004);
+    const prioritizedList = buildTaskListReply(service, 42, { mode: "all" });
+    assert.notEqual(typeof prioritizedList, "string");
+    if (typeof prioritizedList !== "string") {
+      const keyboard = prioritizedList.options?.reply_markup;
+      assert.ok(keyboard && "inline_keyboard" in keyboard);
+      if (keyboard && "inline_keyboard" in keyboard) {
+        assert.ok(keyboard.inline_keyboard[0][0].text.startsWith("📌 3004A"));
+      }
+    }
     assert.equal(
       service.nextTask(42, { tag: "dp", shuffle: true, excludeProblem: "3004A" }).contestId,
       3002
