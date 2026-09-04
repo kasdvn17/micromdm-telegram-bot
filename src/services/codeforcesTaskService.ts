@@ -20,7 +20,19 @@ export interface CodeforcesTask {
   ratingSource?: CodeforcesProblemRatingSource;
   /** Một task có thể nằm trong nhiều nhóm; field optional để tương thích JSON cũ. */
   tags?: string[];
+  /** Tags chính thức do Codeforces cung cấp, tách riêng khỏi nhóm tự quản lý. */
+  codeforcesTags?: string[];
   archivedAt?: string;
+}
+
+export interface NextTaskOptions {
+  /** Khớp với tag tự quản lý hoặc tag chính thức của Codeforces. */
+  tag?: string;
+  minRating?: number;
+  maxRating?: number;
+  shuffle?: boolean;
+  /** Khi shuffle, ưu tiên không trả lại problem vừa hiển thị. */
+  excludeProblem?: string;
 }
 
 interface UserTaskState {
@@ -56,6 +68,7 @@ export interface RefreshResult {
   newlySolved: CodeforcesTask[];
   unavailablePublicProblems: CodeforcesTask[];
   ratingsUpdated: number;
+  codeforcesTagsUpdated: number;
   syncMode: "full" | "incremental";
 }
 
@@ -106,7 +119,8 @@ export interface CodeforcesTaskServiceApi {
   archiveSolvedTasks(telegramId: number, problemReference?: string): number;
   setAutoArchive(telegramId: number, enabled: boolean): void;
   getAutoArchive(telegramId: number): boolean;
-  nextTask(telegramId: number, options?: { tag?: string; minRating?: number; maxRating?: number }): CodeforcesTask;
+  listCodeforcesTags(telegramId: number, activeOnly?: boolean): string[];
+  nextTask(telegramId: number, options?: NextTaskOptions): CodeforcesTask;
   suggestTasks(
     telegramId: number,
     options?: { tag?: string; minRating?: number; maxRating?: number; limit?: number }
@@ -154,6 +168,22 @@ function normalizeTag(value: string): string {
     );
   }
   return tag;
+}
+
+function normalizeCodeforcesTags(values: readonly string[] | undefined): string[] {
+  return [...new Set((values ?? []).map((value) => value.trim().toLocaleLowerCase()).filter(Boolean))]
+    .sort((a, b) => a.localeCompare(b));
+}
+
+function normalizeFilterTag(value: string): string {
+  return value.trim().replace(/^#/, "").toLocaleLowerCase();
+}
+
+function taskHasTag(task: CodeforcesTask, normalizedTag: string): boolean {
+  return (task.tags ?? []).some((value) => normalizeTag(value) === normalizedTag) ||
+    (task.codeforcesTags ?? []).some(
+      (value) => value.trim().toLocaleLowerCase() === normalizedTag
+    );
 }
 
 function normalizeTitle(value: string): string {
@@ -248,7 +278,11 @@ export function createCodeforcesTaskService(
     user.undo = {
       createdAt: now().toISOString(),
       description,
-      tasks: user.tasks.map((task) => ({ ...task, tags: [...(task.tags ?? [])] })),
+      tasks: user.tasks.map((task) => ({
+        ...task,
+        tags: [...(task.tags ?? [])],
+        codeforcesTags: [...(task.codeforcesTags ?? [])],
+      })),
       tags: user.tags ? [...user.tags] : undefined,
       autoArchiveSolved: user.autoArchiveSolved,
     };
@@ -323,14 +357,33 @@ export function createCodeforcesTaskService(
   const problemUrl = (task: Pick<CodeforcesTask, "contestId" | "index">): string =>
     `https://codeforces.com/problemset/problem/${task.contestId}/${task.index}`;
 
-  const updateRatings = async (tasks: CodeforcesTask[]): Promise<number> => {
+  const updateMetadata = async (
+    tasks: CodeforcesTask[],
+    knownProblems?: readonly CodeforcesProblem[]
+  ): Promise<{ ratingsUpdated: number; codeforcesTagsUpdated: number }> => {
     const sourcePriority: Record<CodeforcesProblemRatingSource, number> = {
       unrated: 0,
       kira: 1,
       codeforces: 2,
     };
     let ratingsUpdated = 0;
+    let codeforcesTagsUpdated = 0;
+    const problems = knownProblems ?? await client.fetchResolvableProblems();
+    const problemByKey = new Map(
+      problems
+        .filter((problem) => problem.contestId)
+        .map((problem) => [problemKey(problem.contestId!, problem.index), problem] as const)
+    );
     for (const task of tasks) {
+      const problem = problemByKey.get(problemKey(task.contestId, task.index));
+      if (problem) {
+        const nextTags = normalizeCodeforcesTags(problem.tags);
+        const currentTags = normalizeCodeforcesTags(task.codeforcesTags);
+        if (nextTags.join("\u0000") !== currentTags.join("\u0000")) {
+          task.codeforcesTags = nextTags;
+          codeforcesTagsUpdated++;
+        }
+      }
       try {
         const resolved = await client.getProblemRating(task.contestId, task.index);
         const currentSource = task.ratingSource ?? "unrated";
@@ -346,7 +399,7 @@ export function createCodeforcesTaskService(
         // Một bài lỗi không được làm hỏng việc cập nhật các task còn lại.
       }
     }
-    return ratingsUpdated;
+    return { ratingsUpdated, codeforcesTagsUpdated };
   };
 
   return {
@@ -391,6 +444,7 @@ export function createCodeforcesTaskService(
         addedAt: now().toISOString(),
         rating: resolvedRating.rating,
         ratingSource: resolvedRating.source,
+        codeforcesTags: normalizeCodeforcesTags(problem.tags),
       };
       if (!state.users[String(telegramId)]) {
         state.users[String(telegramId)] = { tasks: [] };
@@ -433,6 +487,7 @@ export function createCodeforcesTaskService(
           addedAt: now().toISOString(),
           rating: resolvedRating.rating,
           ratingSource: resolvedRating.source,
+          codeforcesTags: normalizeCodeforcesTags(problem.tags),
         });
       }
       if (!state.users[String(telegramId)]) state.users[String(telegramId)] = { tasks: [] };
@@ -595,16 +650,36 @@ export function createCodeforcesTaskService(
       return readState().users[String(telegramId)]?.autoArchiveSolved ?? false;
     },
 
+    listCodeforcesTags(telegramId: number, activeOnly = true): string[] {
+      const tags = new Set<string>();
+      for (const task of getTasks(readState(), telegramId)) {
+        if (activeOnly && (task.status !== "active" || task.archivedAt)) continue;
+        for (const tag of normalizeCodeforcesTags(task.codeforcesTags)) tags.add(tag);
+      }
+      return [...tags].sort((a, b) => a.localeCompare(b));
+    },
+
     nextTask(telegramId, nextOptions = {}): CodeforcesTask {
-      const tag = nextOptions.tag ? normalizeTag(nextOptions.tag) : undefined;
-      const candidates = getTasks(readState(), telegramId)
+      const tag = nextOptions.tag ? normalizeFilterTag(nextOptions.tag) : undefined;
+      let candidates = getTasks(readState(), telegramId)
         .filter((task) => task.status === "active" && !task.archivedAt)
-        .filter((task) => !tag || (task.tags ?? []).includes(tag))
+        .filter((task) => !tag || taskHasTag(task, tag))
         .filter((task) => nextOptions.minRating === undefined || (task.rating ?? 0) >= nextOptions.minRating)
         .filter((task) => nextOptions.maxRating === undefined || (task.rating ?? Infinity) <= nextOptions.maxRating)
         .sort((a, b) => a.addedAt.localeCompare(b.addedAt) || (a.rating ?? 0) - (b.rating ?? 0));
       if (!candidates.length) throw new ValidationError("Không có task active phù hợp bộ lọc.");
-      return candidates[0];
+      if (nextOptions.shuffle && nextOptions.excludeProblem && candidates.length > 1) {
+        const excluded = parseProblemReference(nextOptions.excludeProblem);
+        if (excluded) {
+          const withoutPrevious = candidates.filter(
+            (task) => problemKey(task.contestId, task.index) !== problemKey(excluded.contestId, excluded.index)
+          );
+          if (withoutPrevious.length) candidates = withoutPrevious;
+        }
+      }
+      return nextOptions.shuffle
+        ? candidates[Math.floor(Math.random() * candidates.length)]
+        : candidates[0];
     },
 
     async suggestTasks(telegramId, suggestOptions = {}): Promise<CodeforcesProblem[]> {
@@ -665,7 +740,11 @@ export function createCodeforcesTaskService(
       const user = state.users[String(telegramId)];
       if (!user?.undo) throw new ValidationError("Không có thay đổi task nào để hoàn tác.");
       const snapshot = user.undo;
-      user.tasks = snapshot.tasks.map((task) => ({ ...task, tags: [...(task.tags ?? [])] }));
+      user.tasks = snapshot.tasks.map((task) => ({
+        ...task,
+        tags: [...(task.tags ?? [])],
+        codeforcesTags: [...(task.codeforcesTags ?? [])],
+      }));
       user.tags = snapshot.tags ? [...snapshot.tags] : undefined;
       user.autoArchiveSolved = snapshot.autoArchiveSolved;
       delete user.undo;
@@ -675,15 +754,16 @@ export function createCodeforcesTaskService(
 
     async refreshRatings(telegramId: number): Promise<number> {
       const state = readState();
-      const updated = await updateRatings(getTasks(state, telegramId));
-      if (updated > 0) writeJsonState(filePath, state);
-      return updated;
+      const updated = await updateMetadata(getTasks(state, telegramId));
+      if (updated.ratingsUpdated > 0 || updated.codeforcesTagsUpdated > 0) {
+        writeJsonState(filePath, state);
+      }
+      return updated.ratingsUpdated;
     },
 
     async refresh(telegramId: number, refreshOptions = {}): Promise<RefreshResult> {
       const currentState = readState();
       const currentTasks = getTasks(currentState, telegramId);
-      const ratingsUpdated = await updateRatings(currentTasks);
       const codeforcesHandle = requireHandle();
       if (!currentState.users[String(telegramId)]) {
         currentState.users[String(telegramId)] = { tasks: currentTasks };
@@ -703,6 +783,10 @@ export function createCodeforcesTaskService(
           : client.fetchRecentUserSubmissions(codeforcesHandle),
         client.fetchResolvableProblems(),
       ]);
+      const { ratingsUpdated, codeforcesTagsUpdated } = await updateMetadata(
+        currentTasks,
+        publicProblems
+      );
       const firstAcceptedAt = full
         ? ({} as Record<string, number>)
         : { ...(userState.submissionSync?.firstAcceptedAt ?? {}) };
@@ -763,6 +847,7 @@ export function createCodeforcesTaskService(
         newlySolved: [...newlySolved],
         unavailablePublicProblems: [...unavailablePublicProblems],
         ratingsUpdated,
+        codeforcesTagsUpdated,
         syncMode: full ? "full" : "incremental",
       };
     },

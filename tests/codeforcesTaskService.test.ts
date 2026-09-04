@@ -8,6 +8,7 @@ import { createCodeforcesTaskService } from "../src/services/codeforcesTaskServi
 import { CodeforcesClient } from "../src/utils/codeforces";
 import {
   buildBulkTagPrompt,
+  buildNextTaskFilterReply,
   buildTagEditorReply,
   buildTagRemoveReply,
   buildTaskListReply,
@@ -42,6 +43,7 @@ test("task list pagination, next task, stats and auto-archive settings use JSON 
     solvedAt: index < 2 ? `2026-09-0${index + 1}T01:00:00.000Z` : undefined,
     rating: 1600 + index * 100,
     tags: index % 2 === 0 ? ["dp"] : ["graph"],
+    codeforcesTags: index >= 2 && index <= 4 ? ["combinatorics", "data structures", "math"] : ["greedy"],
   }));
   const data = fixture({ users: { "42": { tasks } } });
   try {
@@ -59,6 +61,27 @@ test("task list pagination, next task, stats and auto-archive settings use JSON 
       }
     }
     assert.equal(service.nextTask(42, { tag: "dp" }).contestId, 3002);
+    assert.equal(service.nextTask(42, { tag: "combinatorics", minRating: 1800 }).contestId, 3002);
+    assert.equal(service.nextTask(42, { tag: "data structures", minRating: 1800 }).contestId, 3002);
+    assert.notEqual(
+      service.nextTask(42, {
+        tag: "combinatorics",
+        minRating: 1800,
+        shuffle: true,
+        excludeProblem: "3002A",
+      }).contestId,
+      3002
+    );
+    assert.deepEqual(service.listCodeforcesTags(42), ["combinatorics", "data structures", "greedy", "math"]);
+    const picker = buildNextTaskFilterReply(service, 42, true);
+    assert.notEqual(typeof picker, "string");
+    if (typeof picker !== "string") {
+      const keyboard = picker.options?.reply_markup;
+      assert.ok(keyboard && "inline_keyboard" in keyboard);
+      if (keyboard && "inline_keyboard" in keyboard) {
+        assert.ok(keyboard.inline_keyboard.flat().some((button) => button.text === "CF · combinatorics"));
+      }
+    }
     const stats = service.getStats(42);
     assert.equal(stats.solvedTotal, 2);
     assert.equal(stats.active, 6);
@@ -69,6 +92,54 @@ test("task list pagination, next task, stats and auto-archive settings use JSON 
     assert.equal(service.listTasks(42).some((task) => task.contestId === 3002), false);
     assert.match(service.undoLastTaskChange(42), /xóa task/);
     assert.equal(service.listTasks(42).some((task) => task.contestId === 3002), true);
+  } finally {
+    data.cleanup();
+  }
+});
+
+test("metadata sync backfills official Codeforces tags for existing tasks", async () => {
+  const data = fixture({
+    users: {
+      "42": {
+        tasks: [{
+          contestId: 1900,
+          index: "D",
+          name: "Tagged problem",
+          status: "active",
+          addedAt: "2026-09-01T00:00:00.000Z",
+          rating: 1700,
+          ratingSource: "codeforces",
+        }],
+      },
+    },
+  });
+  const client = new CodeforcesClient({
+    minRequestIntervalMs: 0,
+    fetchImpl: async (url) => {
+      if (url.includes("problemset.problems")) {
+        return new Response(JSON.stringify({
+          status: "OK",
+          result: {
+            problems: [{
+              contestId: 1900,
+              index: "D",
+              name: "Tagged problem",
+              type: "PROGRAMMING",
+              rating: 1700,
+              tags: ["dp", "combinatorics"],
+            }],
+            problemStatistics: [],
+          },
+        }), { status: 200 });
+      }
+      throw new Error(`Unexpected URL: ${url}`);
+    },
+  });
+  try {
+    const service = createCodeforcesTaskService(data.filePath, "tourist", client);
+    assert.equal(await service.refreshRatings(42), 0);
+    assert.deepEqual(service.listTasks(42)[0].codeforcesTags, ["combinatorics", "dp"]);
+    assert.deepEqual(service.listCodeforcesTags(42), ["combinatorics", "dp"]);
   } finally {
     data.cleanup();
   }

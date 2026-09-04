@@ -13,6 +13,8 @@ import { FocusServiceApi } from "../../services/focusService";
 import {
   buildBulkTagPrompt,
   buildCreateTagPrompt,
+  buildNextTaskFilterReply,
+  buildNextTaskResultReply,
   buildTagEditorReply,
   buildTagRemoveReply,
   buildTagSelectorReply,
@@ -106,6 +108,7 @@ export function createTaskCommand(
         return (
           `➕ Đã thêm task ${task.contestId}${task.index} - ${task.name}.\n` +
           `Difficulty: ${formatRating(task.rating, task.ratingSource)}\n` +
+          `Codeforces tags: ${task.codeforcesTags?.join(", ") || "không có"}\n` +
           `${taskService.problemUrl(task)}\n` +
           "Nếu bài đã AC trước khi thêm, /refresh vẫn dùng submission OK đầu tiên để tính gate."
         );
@@ -128,30 +131,24 @@ export function createTaskCommand(
           tag: tagArgs[0],
         });
       }
-      if (sub === "next") {
+      if (sub === "next" || sub === "shuffle") {
+        const shuffle = sub === "shuffle";
+        if (rest.length === 0) {
+          await ctx.progress("🏷 Đang đồng bộ tag và rating từ Codeforces...");
+          await taskService.refreshRatings(ctx.message.telegramId);
+          return buildNextTaskFilterReply(taskService, ctx.message.telegramId, shuffle);
+        }
         const numbers = rest.filter((value) => /^\d+$/.test(value)).map(Number);
         const tag = rest.find((value) => !/^\d+$/.test(value));
         if (numbers.length > 2 || rest.length > numbers.length + (tag ? 1 : 0)) {
-          throw new ValidationError("Cú pháp: /task next [tag] [minRating] [maxRating]");
+          throw new ValidationError(`Cú pháp: /task ${sub} [tag] [minRating] [maxRating]`);
         }
-        const task = taskService.nextTask(ctx.message.telegramId, {
+        return buildNextTaskResultReply(taskService, ctx.message.telegramId, {
           tag,
           minRating: numbers[0],
           maxRating: numbers[1],
+          shuffle,
         });
-        return {
-          text: [
-            `🎯 Bài tiếp theo: ${task.contestId}${task.index}`,
-            `${task.name} — ${formatRating(task.rating, task.ratingSource)}`,
-            `Tags: ${(task.tags ?? []).map((value) => `#${value}`).join(" ") || "chưa có"}`,
-            taskService.problemUrl(task),
-          ].join("\n"),
-          options: {
-            reply_markup: {
-              inline_keyboard: [[{ text: "🔗 Mở Codeforces", url: taskService.problemUrl(task) }]],
-            },
-          },
-        };
       }
       if (sub === "suggest") {
         const numbers = rest.filter((value) => /^\d+$/.test(value)).map(Number);
@@ -249,8 +246,9 @@ export function createTaskCommand(
           return [
             "🏷 Problem → tags",
             ...tasks.map((task) => {
-              const tags = (task.tags ?? []).map((tag) => `#${tag}`).join(", ") || "không có tag";
-              return `• ${task.contestId}${task.index} — ${task.name}\n  ${tags}`;
+              const tags = (task.tags ?? []).map((tag) => `#${tag}`).join(", ") || "—";
+              const codeforcesTags = task.codeforcesTags?.join(", ") || "chưa đồng bộ";
+              return `• ${task.contestId}${task.index} — ${task.name}\n  👤 ${tags}\n  CF: ${codeforcesTags}`;
             }),
           ].join("\n");
         }
@@ -338,6 +336,7 @@ export function createTaskCommand(
           `📊 Task status (${gate.date})`,
           `Task: ${active.length} active, ${solved.length} đã AC, ${archived.length} archived`,
           `Tags: ${tags.length ? tags.map((tag) => `#${tag}`).join(", ") : "chưa có"}`,
+          `Codeforces tags: ${taskService.listCodeforcesTags(ctx.message.telegramId).length} loại`,
           `Break: ${gate.acceptedSinceLastBreak}/${gate.breakRequiredCount}${gate.breakAllowed ? " ✅" : " ⏳"}`,
           `${inSleep ? "Sleep Focus off" : "Daily Focus off"}: ${gate.focusOffAcceptedCount}/${gate.focusOffRequiredCount}${gate.focusOffAllowed ? " ✅" : " ⏳"}`,
         ].join("\n");
@@ -384,6 +383,9 @@ export function createRefreshCommand(
         result.ratingsUpdated > 0
           ? `📊 Đã cập nhật difficulty cho ${result.ratingsUpdated} task.`
           : "📊 Difficulty không có thay đổi.",
+        result.codeforcesTagsUpdated > 0
+          ? `🏷 Đã đồng bộ Codeforces tags cho ${result.codeforcesTagsUpdated} task.`
+          : "🏷 Codeforces tags không có thay đổi.",
         `☕ Break kế tiếp: ${gate.acceptedSinceLastBreak}/${gate.breakRequiredCount} bài AC mới${gate.breakAllowed ? " — đã mở khóa." : "."}`,
         `${inSleep ? "🌙 Từ lúc Sleep bắt đầu" : "📅 Hôm nay"}: ${gate.focusOffAcceptedCount}/${gate.focusOffRequiredCount} task AC cho Focus off${gate.focusOffAllowed ? " — đã mở khóa." : "."}`,
         active.length === 0

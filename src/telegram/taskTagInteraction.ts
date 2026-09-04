@@ -32,6 +32,17 @@ function tagSummary(task: CodeforcesTask): string {
   return (task.tags ?? []).map((tag) => `#${tag}`).join(" ") || "chưa có tag";
 }
 
+function codeforcesTagSummary(task: CodeforcesTask): string {
+  return (task.codeforcesTags ?? []).join(", ") || "chưa đồng bộ";
+}
+
+function taskMatchesTag(task: CodeforcesTask, tag?: string): boolean {
+  if (!tag) return true;
+  const normalized = tag.replace(/^#/, "").trim().toLocaleLowerCase();
+  return (task.tags ?? []).some((value) => value.toLocaleLowerCase() === normalized) ||
+    (task.codeforcesTags ?? []).some((value) => value.toLocaleLowerCase() === normalized);
+}
+
 function tagToken(tag: string): string {
   return createHash("sha256").update(tag).digest("hex").slice(0, 12);
 }
@@ -43,6 +54,21 @@ function resolveTagToken(
 ): string {
   const tag = taskService.listTags(telegramId).find((value) => tagToken(value) === token);
   if (!tag) throw new Error("Tag không còn tồn tại.");
+  return tag;
+}
+
+function resolveTaskFilterTagToken(
+  taskService: CodeforcesTaskServiceApi,
+  telegramId: number,
+  token: string
+): string | undefined {
+  if (token === "-") return undefined;
+  const tags = [...new Set([
+    ...taskService.listTags(telegramId),
+    ...taskService.listCodeforcesTags(telegramId),
+  ])];
+  const tag = tags.find((value) => tagToken(value) === token);
+  if (!tag) throw new Error("Tag lọc không còn tồn tại trong task active.");
   return tag;
 }
 
@@ -124,7 +150,7 @@ function taskListPage(
   const all = taskService.listTasks(telegramId)
     .filter((task) => mode === "archived" ? !!task.archivedAt : !task.archivedAt)
     .filter((task) => mode !== "active" || task.status === "active")
-    .filter((task) => !normalizedTag || (task.tags ?? []).includes(normalizedTag));
+    .filter((task) => taskMatchesTag(task, normalizedTag));
   const totalPages = Math.max(1, Math.ceil(all.length / TASK_LIST_PAGE_SIZE));
   const page = Math.min(Math.max(0, requestedPage), totalPages - 1);
   const visible = all.slice(page * TASK_LIST_PAGE_SIZE, (page + 1) * TASK_LIST_PAGE_SIZE);
@@ -151,8 +177,11 @@ function taskListPage(
       `📋 Tasks · ${mode}${normalizedTag ? ` · #${normalizedTag}` : ""}`,
       `${all.length} problem · trang ${page + 1}/${totalPages}`,
       ...(visible.length ? visible.map((task) => {
-        const tags = (task.tags ?? []).map((value) => `#${value}`).join(" ");
-        return `${task.status === "solved" ? "✅" : "⏳"} ${problemId(task)} — ${task.name} — ${task.rating ?? "Unrated"}${tags ? ` — ${tags}` : ""}`;
+        const userTags = (task.tags ?? []).map((value) => `#${value}`).join(" ") || "—";
+        return [
+          `${task.status === "solved" ? "✅" : "⏳"} ${problemId(task)} — ${task.name} — ${task.rating ?? "Unrated"}`,
+          `   👤 ${userTags} · CF: ${codeforcesTagSummary(task)}`,
+        ].join("\n");
       }) : ["Không có task phù hợp."]),
     ].join("\n"),
     reply_markup: { inline_keyboard: rows },
@@ -165,11 +194,123 @@ export function buildTaskListReply(
   options: { mode?: TaskListMode; tag?: string } = {}
 ): CommandResponse {
   const normalizedTag = options.tag?.replace(/^#/, "").toLocaleLowerCase();
-  if (normalizedTag && !taskService.listTags(telegramId).includes(normalizedTag)) {
+  const availableTags = new Set([
+    ...taskService.listTags(telegramId),
+    ...taskService.listCodeforcesTags(telegramId, false),
+  ]);
+  if (normalizedTag && !availableTags.has(normalizedTag)) {
     return `⚠️ Không tìm thấy tag #${normalizedTag}.`;
   }
   const result = taskListPage(taskService, telegramId, options.mode ?? "active", 0, options.tag);
   return { text: result.text, options: { reply_markup: result.reply_markup } };
+}
+
+function rowsOf<T>(items: T[], size: number): T[][] {
+  const rows: T[][] = [];
+  for (let index = 0; index < items.length; index += size) {
+    rows.push(items.slice(index, index + size));
+  }
+  return rows;
+}
+
+export function buildNextTaskFilterReply(
+  taskService: CodeforcesTaskServiceApi,
+  telegramId: number,
+  shuffle = false
+): CommandResponse {
+  const active = taskService.listTasks(telegramId).filter(
+    (task) => task.status === "active" && !task.archivedAt
+  );
+  if (!active.length) return "📋 Không còn task active.";
+  const userTags = taskService.listTags(telegramId).filter((tag) =>
+    active.some((task) => taskMatchesTag(task, tag))
+  );
+  const codeforcesTags = taskService.listCodeforcesTags(telegramId).filter(
+    (tag) => !userTags.includes(tag)
+  );
+  const mode = shuffle ? "s" : "n";
+  const tagButtons: TelegramBot.InlineKeyboardButton[] = [
+    { text: "Tất cả tags", callback_data: `${CALLBACK_PREFIX}:nf:${mode}:-` },
+    ...userTags.map((tag) => ({
+      text: `👤 #${tag}`,
+      callback_data: `${CALLBACK_PREFIX}:nf:${mode}:${tagToken(tag)}`,
+    })),
+    ...codeforcesTags.map((tag) => ({
+      text: `CF · ${tag}`,
+      callback_data: `${CALLBACK_PREFIX}:nf:${mode}:${tagToken(tag)}`,
+    })),
+  ];
+  return {
+    text: [
+      shuffle ? "🔀 Shuffle task" : "🎯 Chọn task tiếp theo",
+      "Bước 1/2: chọn tag muốn luyện.",
+      "👤 = tag tự tạo · CF = tag chính thức Codeforces",
+    ].join("\n"),
+    options: { reply_markup: { inline_keyboard: rowsOf(tagButtons, 2) } },
+  };
+}
+
+function nextRatingPicker(
+  taskService: CodeforcesTaskServiceApi,
+  telegramId: number,
+  tag: string | undefined,
+  shuffle: boolean
+): { text: string; reply_markup: TelegramBot.InlineKeyboardMarkup } {
+  const ratings = [...new Set(
+    taskService.listTasks(telegramId)
+      .filter((task) => task.status === "active" && !task.archivedAt && taskMatchesTag(task, tag))
+      .flatMap((task) => Number.isFinite(task.rating) ? [task.rating!] : [])
+  )].sort((a, b) => a - b);
+  if (!ratings.length) throw new Error("Không có task rated phù hợp tag đã chọn.");
+  const mode = shuffle ? "s" : "n";
+  const token = tag ? tagToken(tag) : "-";
+  const buttons = ratings.map((rating) => ({
+    text: `≥ ${rating}`,
+    callback_data: `${CALLBACK_PREFIX}:nm:${mode}:${token}:${rating}`,
+  }));
+  return {
+    text: `${shuffle ? "🔀" : "🎯"} ${tag ? `Tag: ${tag}` : "Tất cả tags"}\nBước 2/2: chọn rating tối thiểu.`,
+    reply_markup: {
+      inline_keyboard: [
+        ...rowsOf(buttons, 3),
+        [{ text: "‹ Chọn lại tag", callback_data: `${CALLBACK_PREFIX}:ni:${mode}` }],
+      ],
+    },
+  };
+}
+
+export function buildNextTaskResultReply(
+  taskService: CodeforcesTaskServiceApi,
+  telegramId: number,
+  options: { tag?: string; minRating?: number; maxRating?: number; shuffle?: boolean; excludeProblem?: string }
+): CommandResponse {
+  const task = taskService.nextTask(telegramId, options);
+  const token = options.tag ? tagToken(options.tag) : "-";
+  const min = options.minRating ?? 0;
+  return {
+    text: [
+      `${options.shuffle ? "🔀" : "🎯"} ${task.contestId}${task.index} — ${task.name}`,
+      `Rating: ${task.rating ?? "Unrated"}`,
+      `👤 Tags: ${tagSummary(task)}`,
+      `🏷 Codeforces: ${codeforcesTagSummary(task)}`,
+      taskService.problemUrl(task),
+    ].join("\n"),
+    options: {
+      reply_markup: {
+        inline_keyboard: [
+          [{ text: "🔗 Mở Codeforces", url: taskService.problemUrl(task) }],
+          [{
+            text: "🔀 Shuffle bài khác",
+            callback_data: `${CALLBACK_PREFIX}:nm:s:${token}:${min}:${task.contestId}:${task.index}`,
+          }],
+          [{
+            text: "⚙️ Chọn lại bộ lọc",
+            callback_data: `${CALLBACK_PREFIX}:ni:${options.shuffle ? "s" : "n"}`,
+          }],
+        ],
+      },
+    },
+  };
 }
 
 function bulkTagSelector(
@@ -373,7 +514,7 @@ function taskDetail(
     [{ text: "‹ Quay lại problem list", callback_data: `${CALLBACK_PREFIX}:p:${page}` }],
   ];
   return {
-    text: `🏷 ${id} — ${task.name}\nTags: ${tagSummary(task)}`,
+    text: `🏷 ${id} — ${task.name}\n👤 Tags: ${tagSummary(task)}\n🏷 Codeforces: ${codeforcesTagSummary(task)}`,
     reply_markup: { inline_keyboard: rows },
   };
 }
@@ -405,6 +546,59 @@ export function attachTaskTagInteraction(
       const telegramId = query.from.id;
       try {
         if (action === "noop") {
+          await bot.answerCallbackQuery(query.id);
+          return;
+        }
+        if (action === "ni") {
+          const reply = buildNextTaskFilterReply(taskService, telegramId, parts[2] === "s");
+          if (typeof reply === "string") {
+            await bot.editMessageText(reply, {
+              chat_id: message.chat.id,
+              message_id: message.message_id,
+            });
+          } else {
+            await bot.editMessageText(reply.text, {
+              chat_id: message.chat.id,
+              message_id: message.message_id,
+              reply_markup: reply.options?.reply_markup && "inline_keyboard" in reply.options.reply_markup
+                ? reply.options.reply_markup
+                : undefined,
+            });
+          }
+          await bot.answerCallbackQuery(query.id);
+          return;
+        }
+        if (action === "nf") {
+          const shuffle = parts[2] === "s";
+          const tag = resolveTaskFilterTagToken(taskService, telegramId, parts[3]);
+          const result = nextRatingPicker(taskService, telegramId, tag, shuffle);
+          await bot.editMessageText(result.text, {
+            chat_id: message.chat.id,
+            message_id: message.message_id,
+            reply_markup: result.reply_markup,
+          });
+          await bot.answerCallbackQuery(query.id);
+          return;
+        }
+        if (action === "nm") {
+          const shuffle = parts[2] === "s";
+          const tag = resolveTaskFilterTagToken(taskService, telegramId, parts[3]);
+          const minRating = Number(parts[4]);
+          const previous = parts[5] && parts[6] ? `${parts[5]}${parts[6]}` : undefined;
+          const reply = buildNextTaskResultReply(taskService, telegramId, {
+            tag,
+            minRating,
+            shuffle,
+            excludeProblem: previous,
+          });
+          if (typeof reply === "string") throw new Error(reply);
+          await bot.editMessageText(reply.text, {
+            chat_id: message.chat.id,
+            message_id: message.message_id,
+            reply_markup: reply.options?.reply_markup && "inline_keyboard" in reply.options.reply_markup
+              ? reply.options.reply_markup
+              : undefined,
+          });
           await bot.answerCallbackQuery(query.id);
           return;
         }

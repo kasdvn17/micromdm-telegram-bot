@@ -3,7 +3,11 @@ import { CodeforcesTaskServiceApi } from "../services/codeforcesTaskService";
 import { DeviceInfoServiceApi } from "../services/deviceInfoService";
 import { FocusServiceApi } from "../services/focusService";
 import { buildDashboardReply } from "../commands/normal/status.command";
-import { buildTagSelectorReply, buildTaskListReply } from "./taskTagInteraction";
+import {
+  buildNextTaskFilterReply,
+  buildTagSelectorReply,
+  buildTaskListReply,
+} from "./taskTagInteraction";
 import { formatError } from "./replyFormatter";
 
 function gateOptions(status: ReturnType<FocusServiceApi["status"]>) {
@@ -54,12 +58,10 @@ export function attachMenuInteraction(
           return;
         }
         if (action === "next") {
-          const task = taskService.nextTask(query.from.id);
-          await bot.sendMessage(
-            message.chat.id,
-            `🎯 ${task.contestId}${task.index} — ${task.name} — ${task.rating ?? "Unrated"}`,
-            { reply_markup: { inline_keyboard: [[{ text: "🔗 Mở Codeforces", url: taskService.problemUrl(task) }]] } }
-          );
+          await taskService.refreshRatings(query.from.id);
+          const reply = buildNextTaskFilterReply(taskService, query.from.id);
+          if (typeof reply === "string") await bot.sendMessage(message.chat.id, reply);
+          else await bot.sendMessage(message.chat.id, reply.text, reply.options);
           return;
         }
         if (action === "refresh") {
