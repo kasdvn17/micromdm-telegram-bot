@@ -9,6 +9,7 @@ import { CodeforcesClient } from "../src/utils/codeforces";
 import {
   buildBulkTagPrompt,
   buildNextTaskFilterReply,
+  buildPrioritizeTaskReply,
   buildTagEditorReply,
   buildTagRemoveReply,
   buildTaskListReply,
@@ -72,6 +73,25 @@ test("task list pagination, next task, stats and auto-archive settings use JSON 
       }).contestId,
       3002
     );
+    assert.equal(service.prioritizeTask(42, "3004A").contestId, 3004);
+    assert.equal(service.nextTask(42, { tag: "dp" }).contestId, 3004);
+    assert.equal(service.nextTask(42, { tag: "dp", shuffle: true }).contestId, 3004);
+    assert.equal(
+      service.nextTask(42, { tag: "dp", shuffle: true, excludeProblem: "3004A" }).contestId,
+      3002
+    );
+    assert.throws(() => service.prioritizeTask(42, "3000A"), /active/);
+    const prioritizePicker = buildPrioritizeTaskReply(service, 42);
+    assert.notEqual(typeof prioritizePicker, "string");
+    if (typeof prioritizePicker !== "string") {
+      const keyboard = prioritizePicker.options?.reply_markup;
+      assert.ok(keyboard && "inline_keyboard" in keyboard);
+      if (keyboard && "inline_keyboard" in keyboard) {
+        assert.ok(keyboard.inline_keyboard.flat().some((button) => button.text.startsWith("📌 3004A")));
+      }
+    }
+    assert.equal(service.clearPrioritizedTask(42), true);
+    assert.equal(service.nextTask(42, { tag: "dp" }).contestId, 3002);
     assert.deepEqual(service.listCodeforcesTags(42), ["combinatorics", "data structures", "greedy", "math"]);
     const picker = buildNextTaskFilterReply(service, 42, true);
     assert.notEqual(typeof picker, "string");
@@ -324,6 +344,7 @@ test("refresh stores earliest AC then switches to incremental submission sync", 
           addedAt: "2026-09-02T03:00:00.000Z",
           rating: 1600,
           ratingSource: "codeforces",
+          prioritizedAt: "2026-09-02T03:05:00.000Z",
         }],
       },
     },
@@ -375,6 +396,7 @@ test("refresh stores earliest AC then switches to incremental submission sync", 
     const first = await service.refresh(42);
     assert.equal(first.syncMode, "full");
     assert.equal(first.tasks[0].solvedAt, "1970-01-01T00:01:40.000Z");
+    assert.equal(first.tasks[0].prioritizedAt, undefined);
     const second = await service.refresh(42);
     assert.equal(second.syncMode, "incremental");
     assert.deepEqual(userStatusCounts, ["100", "1000"]);

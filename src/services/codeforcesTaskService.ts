@@ -22,6 +22,8 @@ export interface CodeforcesTask {
   tags?: string[];
   /** Tags chính thức do Codeforces cung cấp, tách riêng khỏi nhóm tự quản lý. */
   codeforcesTags?: string[];
+  /** Chỉ một task active được ghim ưu tiên tại một thời điểm. */
+  prioritizedAt?: string;
   archivedAt?: string;
 }
 
@@ -119,6 +121,8 @@ export interface CodeforcesTaskServiceApi {
   archiveSolvedTasks(telegramId: number, problemReference?: string): number;
   setAutoArchive(telegramId: number, enabled: boolean): void;
   getAutoArchive(telegramId: number): boolean;
+  prioritizeTask(telegramId: number, problemReference: string): CodeforcesTask;
+  clearPrioritizedTask(telegramId: number): boolean;
   listCodeforcesTags(telegramId: number, activeOnly?: boolean): string[];
   nextTask(telegramId: number, options?: NextTaskOptions): CodeforcesTask;
   suggestTasks(
@@ -650,6 +654,41 @@ export function createCodeforcesTaskService(
       return readState().users[String(telegramId)]?.autoArchiveSolved ?? false;
     },
 
+    prioritizeTask(telegramId: number, problemReference: string): CodeforcesTask {
+      const reference = parseProblemReference(problemReference);
+      if (!reference) {
+        throw new ValidationError("Hãy chọn task bằng problem ID hoặc URL Codeforces.");
+      }
+      const state = readState();
+      const user = state.users[String(telegramId)];
+      const task = user?.tasks.find(
+        (item) => problemKey(item.contestId, item.index) === problemKey(reference.contestId, reference.index)
+      );
+      if (!user || !task) {
+        throw new ValidationError(
+          `Không tìm thấy ${reference.contestId}${reference.index} trong task list.`
+        );
+      }
+      if (task.status !== "active" || task.archivedAt) {
+        throw new ValidationError("Chỉ có thể prioritize task active chưa AC.");
+      }
+      captureUndo(user, `prioritize ${task.contestId}${task.index}`);
+      for (const item of user.tasks) delete item.prioritizedAt;
+      task.prioritizedAt = now().toISOString();
+      writeJsonState(filePath, state);
+      return { ...task, tags: [...(task.tags ?? [])], codeforcesTags: [...(task.codeforcesTags ?? [])] };
+    },
+
+    clearPrioritizedTask(telegramId: number): boolean {
+      const state = readState();
+      const user = state.users[String(telegramId)];
+      if (!user || !user.tasks.some((task) => !!task.prioritizedAt)) return false;
+      captureUndo(user, "bỏ prioritize task");
+      for (const task of user.tasks) delete task.prioritizedAt;
+      writeJsonState(filePath, state);
+      return true;
+    },
+
     listCodeforcesTags(telegramId: number, activeOnly = true): string[] {
       const tags = new Set<string>();
       for (const task of getTasks(readState(), telegramId)) {
@@ -666,8 +705,20 @@ export function createCodeforcesTaskService(
         .filter((task) => !tag || taskHasTag(task, tag))
         .filter((task) => nextOptions.minRating === undefined || (task.rating ?? 0) >= nextOptions.minRating)
         .filter((task) => nextOptions.maxRating === undefined || (task.rating ?? Infinity) <= nextOptions.maxRating)
-        .sort((a, b) => a.addedAt.localeCompare(b.addedAt) || (a.rating ?? 0) - (b.rating ?? 0));
+        .sort((a, b) =>
+          Number(!!b.prioritizedAt) - Number(!!a.prioritizedAt) ||
+          a.addedAt.localeCompare(b.addedAt) ||
+          (a.rating ?? 0) - (b.rating ?? 0)
+        );
       if (!candidates.length) throw new ValidationError("Không có task active phù hợp bộ lọc.");
+      const prioritized = candidates.find((task) => {
+        if (!task.prioritizedAt) return false;
+        if (!nextOptions.excludeProblem) return true;
+        const excluded = parseProblemReference(nextOptions.excludeProblem);
+        return !excluded ||
+          problemKey(task.contestId, task.index) !== problemKey(excluded.contestId, excluded.index);
+      });
+      if (prioritized) return prioritized;
       if (nextOptions.shuffle && nextOptions.excludeProblem && candidates.length > 1) {
         const excluded = parseProblemReference(nextOptions.excludeProblem);
         if (excluded) {
@@ -828,6 +879,7 @@ export function createCodeforcesTaskService(
           const firstAcceptedAtIso = new Date(acceptedAtSeconds * 1000).toISOString();
           if (task.status === "active") {
             task.status = "solved";
+            delete task.prioritizedAt;
             newlySolved.push(task);
           }
           // Luôn sửa lại cả task solved cũ: mốc là submission OK đầu tiên,

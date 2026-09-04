@@ -32,6 +32,8 @@ Quy ước: lệnh Emergency/Two-Factor đặt password ngay sau tên lệnh:
 /task list all — xem cả task đã AC
 /task list [all] [tag] — lọc theo tag tự tạo hoặc Codeforces tag
 /task list archived [tag] — xem task đã archive
+/task prioritize [id|url] — ghim một task cần làm trước
+/task prioritize clear — bỏ task đang ghim
 /task next — chọn tag + rating tối thiểu bằng nút bấm
 /task next [tag] [min] [max] — chọn trực tiếp task đầu tiên phù hợp
 /task shuffle [tag] [min] [max] — chọn ngẫu nhiên task phù hợp

@@ -15,6 +15,7 @@ import {
   buildCreateTagPrompt,
   buildNextTaskFilterReply,
   buildNextTaskResultReply,
+  buildPrioritizeTaskReply,
   buildTagEditorReply,
   buildTagRemoveReply,
   buildTagSelectorReply,
@@ -130,6 +131,21 @@ export function createTaskCommand(
           mode: archivedOnly ? "archived" : includeSolved ? "all" : "active",
           tag: tagArgs[0],
         });
+      }
+      if (sub === "prioritize") {
+        if (rest.length === 0) {
+          return buildPrioritizeTaskReply(taskService, ctx.message.telegramId);
+        }
+        if (rest.length !== 1) {
+          throw new ValidationError("Cú pháp: /task prioritize <problemId|url>|clear");
+        }
+        if (rest[0].toLowerCase() === "clear") {
+          return taskService.clearPrioritizedTask(ctx.message.telegramId)
+            ? "📌 Đã bỏ prioritize task."
+            : "📌 Hiện không có task nào được prioritize.";
+        }
+        const task = taskService.prioritizeTask(ctx.message.telegramId, rest[0]);
+        return `📌 Đã prioritize ${task.contestId}${task.index} — ${task.name}.`;
       }
       if (sub === "next" || sub === "shuffle") {
         const shuffle = sub === "shuffle";
@@ -248,7 +264,7 @@ export function createTaskCommand(
             ...tasks.map((task) => {
               const tags = (task.tags ?? []).map((tag) => `#${tag}`).join(", ") || "—";
               const codeforcesTags = task.codeforcesTags?.join(", ") || "chưa đồng bộ";
-              return `• ${task.contestId}${task.index} — ${task.name}\n  👤 ${tags}\n  CF: ${codeforcesTags}`;
+              return `${task.prioritizedAt ? "📌" : "•"} ${task.contestId}${task.index} — ${task.name}\n  👤 ${tags}\n  CF: ${codeforcesTags}`;
             }),
           ].join("\n");
         }

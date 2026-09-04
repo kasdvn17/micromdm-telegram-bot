@@ -157,7 +157,7 @@ function taskListPage(
   const modeCode = mode === "active" ? "v" : mode === "all" ? "a" : "r";
   const token = normalizedTag ? tagToken(normalizedTag) : "-";
   const rows: TelegramBot.InlineKeyboardButton[][] = visible.map((task) => [{
-    text: `${task.status === "solved" ? "✅" : "⏳"} ${problemId(task)} · ${task.rating ?? "?"} · ${task.name}`.slice(0, 60),
+    text: `${task.prioritizedAt ? "📌" : task.status === "solved" ? "✅" : "⏳"} ${problemId(task)} · ${task.rating ?? "?"} · ${task.name}`.slice(0, 60),
     url: taskService.problemUrl(task),
   }]);
   if (totalPages > 1) {
@@ -179,7 +179,7 @@ function taskListPage(
       ...(visible.length ? visible.map((task) => {
         const userTags = (task.tags ?? []).map((value) => `#${value}`).join(" ") || "—";
         return [
-          `${task.status === "solved" ? "✅" : "⏳"} ${problemId(task)} — ${task.name} — ${task.rating ?? "Unrated"}`,
+          `${task.prioritizedAt ? "📌" : task.status === "solved" ? "✅" : "⏳"} ${problemId(task)} — ${task.name} — ${task.rating ?? "Unrated"}`,
           `   👤 ${userTags} · CF: ${codeforcesTagSummary(task)}`,
         ].join("\n");
       }) : ["Không có task phù hợp."]),
@@ -250,6 +250,51 @@ export function buildNextTaskFilterReply(
   };
 }
 
+function prioritizeTaskPage(
+  taskService: CodeforcesTaskServiceApi,
+  telegramId: number,
+  requestedPage: number
+): { text: string; reply_markup: TelegramBot.InlineKeyboardMarkup } | null {
+  const active = taskService.listTasks(telegramId).filter(
+    (task) => task.status === "active" && !task.archivedAt
+  );
+  if (!active.length) return null;
+  const totalPages = Math.max(1, Math.ceil(active.length / PAGE_SIZE));
+  const page = Math.min(Math.max(0, requestedPage), totalPages - 1);
+  const visible = active.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
+  const rows: TelegramBot.InlineKeyboardButton[][] = visible.map((task) => [{
+    text: `${task.prioritizedAt ? "📌" : "○"} ${problemId(task)} · ${task.rating ?? "?"} · ${task.name}`.slice(0, 60),
+    callback_data: `${CALLBACK_PREFIX}:ps:${page}:${task.contestId}:${task.index}`,
+  }]);
+  if (totalPages > 1) {
+    rows.push([
+      ...(page > 0
+        ? [{ text: "‹ Trước", callback_data: `${CALLBACK_PREFIX}:pp:${page - 1}` }]
+        : []),
+      { text: `${page + 1}/${totalPages}`, callback_data: `${CALLBACK_PREFIX}:noop` },
+      ...(page + 1 < totalPages
+        ? [{ text: "Sau ›", callback_data: `${CALLBACK_PREFIX}:pp:${page + 1}` }]
+        : []),
+    ]);
+  }
+  if (active.some((task) => !!task.prioritizedAt)) {
+    rows.push([{ text: "✖ Bỏ prioritize", callback_data: `${CALLBACK_PREFIX}:pc` }]);
+  }
+  return {
+    text: "📌 Chọn một task cần làm trước các task khác:",
+    reply_markup: { inline_keyboard: rows },
+  };
+}
+
+export function buildPrioritizeTaskReply(
+  taskService: CodeforcesTaskServiceApi,
+  telegramId: number
+): CommandResponse {
+  const result = prioritizeTaskPage(taskService, telegramId, 0);
+  if (!result) return "📋 Không có task active để prioritize.";
+  return { text: result.text, options: { reply_markup: result.reply_markup } };
+}
+
 function nextRatingPicker(
   taskService: CodeforcesTaskServiceApi,
   telegramId: number,
@@ -290,6 +335,7 @@ export function buildNextTaskResultReply(
   return {
     text: [
       `${options.shuffle ? "🔀" : "🎯"} ${task.contestId}${task.index} — ${task.name}`,
+      ...(task.prioritizedAt ? ["📌 Task đang được prioritize"] : []),
       `Rating: ${task.rating ?? "Unrated"}`,
       `👤 Tags: ${tagSummary(task)}`,
       `🏷 Codeforces: ${codeforcesTagSummary(task)}`,
@@ -547,6 +593,27 @@ export function attachTaskTagInteraction(
       try {
         if (action === "noop") {
           await bot.answerCallbackQuery(query.id);
+          return;
+        }
+        if (action === "pp" || action === "ps" || action === "pc") {
+          let page = action === "pp" ? Number(parts[2]) : 0;
+          let answer: string | undefined;
+          if (action === "ps") {
+            page = Number(parts[2]);
+            const task = taskService.prioritizeTask(telegramId, `${parts[3]}${parts[4]}`);
+            answer = `Đã prioritize ${problemId(task)}.`;
+          }
+          if (action === "pc") {
+            taskService.clearPrioritizedTask(telegramId);
+            answer = "Đã bỏ prioritize.";
+          }
+          const result = prioritizeTaskPage(taskService, telegramId, page);
+          await bot.editMessageText(result?.text ?? "📋 Không có task active để prioritize.", {
+            chat_id: message.chat.id,
+            message_id: message.message_id,
+            reply_markup: result?.reply_markup,
+          });
+          await bot.answerCallbackQuery(query.id, { text: answer });
           return;
         }
         if (action === "ni") {
