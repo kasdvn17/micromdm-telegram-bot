@@ -61,6 +61,17 @@ test("task list pagination, next task, stats and auto-archive settings use JSON 
         assert.ok(keyboard.inline_keyboard.some((row) => row.some((button) => button.text === "1/2")));
       }
     }
+    const solvedList = buildTaskListReply(service, 42, { mode: "solved" });
+    assert.notEqual(typeof solvedList, "string");
+    if (typeof solvedList !== "string") {
+      assert.match(solvedList.text, /🕒 AC:/);
+      const keyboard = solvedList.options?.reply_markup;
+      assert.ok(keyboard && "inline_keyboard" in keyboard);
+      if (keyboard && "inline_keyboard" in keyboard) {
+        assert.ok(keyboard.inline_keyboard[0][0].text.startsWith("✅ 3001A"));
+        assert.ok(keyboard.inline_keyboard.flat().some((button) => button.text === "Solved"));
+      }
+    }
     assert.equal(service.nextTask(42, { tag: "dp" }).contestId, 3002);
     assert.equal(service.nextTask(42, { tag: "combinatorics", minRating: 1800 }).contestId, 3002);
     assert.equal(service.nextTask(42, { tag: "data structures", minRating: 1800 }).contestId, 3002);

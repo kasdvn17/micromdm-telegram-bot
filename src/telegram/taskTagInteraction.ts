@@ -65,7 +65,7 @@ function resolveTaskFilterTagToken(
   if (token === "-") return undefined;
   const tags = [...new Set([
     ...taskService.listTags(telegramId),
-    ...taskService.listCodeforcesTags(telegramId),
+    ...taskService.listCodeforcesTags(telegramId, false),
   ])];
   const tag = tags.find((value) => tagToken(value) === token);
   if (!tag) throw new Error("Tag lọc không còn tồn tại trong task active.");
@@ -137,7 +137,20 @@ export function buildBulkTagPrompt(
   };
 }
 
-type TaskListMode = "active" | "all" | "archived";
+type TaskListMode = "active" | "all" | "solved" | "archived";
+
+function formatSolvedAt(value: string | undefined): string | undefined {
+  if (!value) return undefined;
+  const date = new Date(value);
+  if (!Number.isFinite(date.getTime())) return value;
+  return new Intl.DateTimeFormat("vi-VN", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(date);
+}
 
 function taskListPage(
   taskService: CodeforcesTaskServiceApi,
@@ -150,12 +163,18 @@ function taskListPage(
   const all = taskService.listTasks(telegramId)
     .filter((task) => mode === "archived" ? !!task.archivedAt : !task.archivedAt)
     .filter((task) => mode !== "active" || task.status === "active")
+    .filter((task) => mode !== "solved" || task.status === "solved")
     .filter((task) => taskMatchesTag(task, normalizedTag))
-    .sort((a, b) => Number(!!b.prioritizedAt) - Number(!!a.prioritizedAt));
+    .sort((a, b) => {
+      const priorityOrder = Number(!!b.prioritizedAt) - Number(!!a.prioritizedAt);
+      if (priorityOrder) return priorityOrder;
+      if (mode !== "solved") return 0;
+      return new Date(b.solvedAt ?? 0).getTime() - new Date(a.solvedAt ?? 0).getTime();
+    });
   const totalPages = Math.max(1, Math.ceil(all.length / TASK_LIST_PAGE_SIZE));
   const page = Math.min(Math.max(0, requestedPage), totalPages - 1);
   const visible = all.slice(page * TASK_LIST_PAGE_SIZE, (page + 1) * TASK_LIST_PAGE_SIZE);
-  const modeCode = mode === "active" ? "v" : mode === "all" ? "a" : "r";
+  const modeCode = mode === "active" ? "v" : mode === "all" ? "a" : mode === "solved" ? "s" : "r";
   const token = normalizedTag ? tagToken(normalizedTag) : "-";
   const rows: TelegramBot.InlineKeyboardButton[][] = visible.map((task) => [{
     text: `${task.prioritizedAt ? "📌" : task.status === "solved" ? "✅" : "⏳"} ${problemId(task)} · ${task.rating ?? "?"} · ${task.name}`.slice(0, 60),
@@ -170,6 +189,9 @@ function taskListPage(
   }
   rows.push([
     { text: "Active", callback_data: `${CALLBACK_PREFIX}:tl:v:0:${token}` },
+    { text: "Solved", callback_data: `${CALLBACK_PREFIX}:tl:s:0:${token}` },
+  ]);
+  rows.push([
     { text: "All", callback_data: `${CALLBACK_PREFIX}:tl:a:0:${token}` },
     { text: "Archived", callback_data: `${CALLBACK_PREFIX}:tl:r:0:${token}` },
   ]);
@@ -181,6 +203,7 @@ function taskListPage(
         const userTags = (task.tags ?? []).map((value) => `#${value}`).join(" ") || "—";
         return [
           `${task.prioritizedAt ? "📌" : task.status === "solved" ? "✅" : "⏳"} ${problemId(task)} — ${task.name} — ${task.rating ?? "Unrated"}`,
+          ...(task.solvedAt ? [`   🕒 AC: ${formatSolvedAt(task.solvedAt)}`] : []),
           `   👤 ${userTags} · CF: ${codeforcesTagSummary(task)}`,
         ].join("\n");
       }) : ["Không có task phù hợp."]),
@@ -753,9 +776,15 @@ export function attachTaskTagInteraction(
           return;
         }
         if (action === "tl") {
-          const mode: TaskListMode = parts[2] === "a" ? "all" : parts[2] === "r" ? "archived" : "active";
+          const mode: TaskListMode = parts[2] === "a"
+            ? "all"
+            : parts[2] === "s"
+              ? "solved"
+              : parts[2] === "r"
+                ? "archived"
+                : "active";
           const tag = parts[4] && parts[4] !== "-"
-            ? resolveTagToken(taskService, telegramId, parts[4])
+            ? resolveTaskFilterTagToken(taskService, telegramId, parts[4])
             : undefined;
           const result = taskListPage(taskService, telegramId, mode, Number(parts[3]), tag);
           await bot.editMessageText(result.text, {

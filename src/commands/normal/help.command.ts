@@ -31,6 +31,7 @@ Quy ước: lệnh Emergency/Two-Factor đặt password ngay sau tên lệnh:
 /task add bulk <id|url>... [--atomic] — hỗ trợ dấu phẩy, chọn gắn chung tag sau khi thêm
 /task list — chỉ xem task active
 /task list all — xem cả task đã AC
+/task list solved [tag] — bài đã AC, mới nhất trước + ngày giờ AC
 /task list [all] [tag] — lọc theo tag tự tạo hoặc Codeforces tag
 /task list archived [tag] — xem task đã archive
 /task prioritize [id|url] — ghim một task cần làm trước

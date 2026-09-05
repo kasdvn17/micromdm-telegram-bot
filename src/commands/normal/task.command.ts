@@ -150,20 +150,27 @@ export function createTaskCommand(
         );
       }
       if (sub === "list") {
-        const includeSolved = rest.some((arg) => arg.toLowerCase() === "all");
-        const archivedOnly = rest.some((arg) => arg.toLowerCase() === "archived");
-        if (includeSolved && archivedOnly) {
-          throw new ValidationError("Chỉ chọn một mode: all hoặc archived.");
+        const modes = rest
+          .map((arg) => arg.toLowerCase())
+          .filter((arg) => ["all", "solved", "archived"].includes(arg));
+        if (modes.length > 1) {
+          throw new ValidationError("Chỉ chọn một mode: all, solved hoặc archived.");
         }
         const tagArgs = rest.filter(
-          (arg) => !["all", "archived"].includes(arg.toLowerCase())
+          (arg) => !["all", "solved", "archived"].includes(arg.toLowerCase())
         );
         if (tagArgs.length > 1) {
-          throw new ValidationError("Cú pháp: /task list [all] [tag]");
+          throw new ValidationError("Cú pháp: /task list [all|solved|archived] [tag]");
         }
         await taskService.refreshRatings(ctx.message.telegramId);
         return buildTaskListReply(taskService, ctx.message.telegramId, {
-          mode: archivedOnly ? "archived" : includeSolved ? "all" : "active",
+          mode: modes[0] === "archived"
+            ? "archived"
+            : modes[0] === "solved"
+              ? "solved"
+              : modes[0] === "all"
+                ? "all"
+                : "active",
           tag: tagArgs[0],
         });
       }
