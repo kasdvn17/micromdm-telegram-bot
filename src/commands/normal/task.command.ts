@@ -39,6 +39,41 @@ export function createTaskCommand(
     handler: async (ctx: CommandContext): Promise<CommandResponse> => {
       const [sub, ...rest] = ctx.effectiveArgs;
       if (sub === "add") {
+        if (rest[0]?.toLowerCase() === "contest") {
+          if (rest.length !== 2) {
+            throw new ValidationError(
+              "Cú pháp: /task add contest <contestId|contestUrl>"
+            );
+          }
+          await ctx.progress(`🏁 Đang lấy toàn bộ problem của contest ${rest[1]}...`);
+          const result = await taskService.addContestTasks(ctx.message.telegramId, rest[1]);
+          const lines = [
+            `🏁 Contest ${result.contestId}: đã thêm ${result.added.length}/${result.totalProblems} problem.`,
+            ...result.added.map(
+              (task) => `✅ ${task.contestId}${task.index} — ${task.name} — ${formatRating(task.rating, task.ratingSource)}`
+            ),
+          ];
+          if (result.skippedExisting.length) {
+            lines.push(`⏭ Đã có trong task list: ${result.skippedExisting.join(", ")}.`);
+          }
+          if (result.skippedRating.length) {
+            lines.push(
+              `🚫 Không đủ rating >= 1600: ${result.skippedRating
+                .map((item) => `${item.problemId} (${item.rating ?? "Unrated"})`)
+                .join(", ")}.`
+            );
+          }
+          if (result.failed.length) {
+            lines.push(
+              ...result.failed.map((item) => `⚠️ ${item.problemId}: ${item.reason}`)
+            );
+          }
+          return buildBulkTagPrompt(
+            lines.join("\n"),
+            ctx.message.telegramId,
+            result.added
+          );
+        }
         if (rest[0]?.toLowerCase() === "bulk") {
           const atomic = rest.some((value) => value.toLowerCase() === "--atomic");
           const references = rest

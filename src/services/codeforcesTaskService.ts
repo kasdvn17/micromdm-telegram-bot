@@ -37,6 +37,15 @@ export interface NextTaskOptions {
   excludeProblem?: string;
 }
 
+export interface ContestTaskAddResult {
+  contestId: number;
+  totalProblems: number;
+  added: CodeforcesTask[];
+  skippedExisting: string[];
+  skippedRating: Array<{ problemId: string; rating?: number }>;
+  failed: Array<{ problemId: string; reason: string }>;
+}
+
 interface UserTaskState {
   tasks: CodeforcesTask[];
   autoArchiveSolved?: boolean;
@@ -106,6 +115,7 @@ export interface CodeforcesTaskServiceOptions {
 export interface CodeforcesTaskServiceApi {
   addTask(telegramId: number, problemQuery: string): Promise<CodeforcesTask>;
   addTasksAtomic(telegramId: number, problemReferences: readonly string[]): Promise<CodeforcesTask[]>;
+  addContestTasks(telegramId: number, contestReference: string): Promise<ContestTaskAddResult>;
   listTasks(telegramId: number): CodeforcesTask[];
   listTags(telegramId: number): string[];
   createTag(telegramId: number, tag: string): string;
@@ -209,6 +219,20 @@ function parseProblemReference(query: string): { contestId: number; index: strin
   const shortMatch = trimmed.match(/^(\d+)\s*(?:\/|-|\s)?\s*([a-z][a-z0-9]*)$/i);
   if (!shortMatch) return null;
   return { contestId: Number(shortMatch[1]), index: shortMatch[2].toUpperCase() };
+}
+
+function parseContestReference(value: string): number | null {
+  const trimmed = value.trim();
+  if (/^\d+$/.test(trimmed)) {
+    const contestId = Number(trimmed);
+    return Number.isSafeInteger(contestId) && contestId > 0 ? contestId : null;
+  }
+  const match = trimmed.match(
+    /^https?:\/\/(?:www\.)?codeforces\.com\/(?:contest|gym)\/(\d+)(?:\/[^?#]*)?(?:[?#].*)?$/i
+  );
+  if (!match) return null;
+  const contestId = Number(match[1]);
+  return Number.isSafeInteger(contestId) && contestId > 0 ? contestId : null;
 }
 
 /** Bulk mode intentionally accepts only an exact short ID or Codeforces URL, never a title. */
@@ -498,6 +522,81 @@ export function createCodeforcesTaskService(
       state.users[String(telegramId)].tasks.push(...added);
       writeJsonState(filePath, state);
       return added.map((task) => ({ ...task }));
+    },
+
+    async addContestTasks(telegramId, contestReference): Promise<ContestTaskAddResult> {
+      requireHandle();
+      const contestId = parseContestReference(contestReference);
+      if (!contestId) {
+        throw new ValidationError(
+          "Contest phải là ID số hoặc URL dạng https://codeforces.com/contest/1234."
+        );
+      }
+      const problems = (await client.fetchResolvableProblems())
+        .filter((problem) => problem.contestId === contestId)
+        .sort((a, b) => a.index.localeCompare(b.index, undefined, { numeric: true }));
+      if (!problems.length) {
+        throw new ValidationError(
+          `Không tìm thấy problem public nào của contest ${contestId}.`
+        );
+      }
+
+      const state = readState();
+      if (!state.users[String(telegramId)]) state.users[String(telegramId)] = { tasks: [] };
+      const user = state.users[String(telegramId)];
+      const existingKeys = new Set(
+        user.tasks.map((task) => problemKey(task.contestId, task.index))
+      );
+      const result: ContestTaskAddResult = {
+        contestId,
+        totalProblems: problems.length,
+        added: [],
+        skippedExisting: [],
+        skippedRating: [],
+        failed: [],
+      };
+
+      for (const problem of problems) {
+        const id = `${contestId}${problem.index.toUpperCase()}`;
+        const key = problemKey(contestId, problem.index);
+        if (existingKeys.has(key)) {
+          result.skippedExisting.push(id);
+          continue;
+        }
+        try {
+          const resolvedRating = await client.getProblemRating(contestId, problem.index);
+          if (
+            !Number.isFinite(resolvedRating.rating) ||
+            resolvedRating.rating! < MIN_TASK_RATING_INCLUSIVE
+          ) {
+            result.skippedRating.push({ problemId: id, rating: resolvedRating.rating });
+            continue;
+          }
+          const task: CodeforcesTask = {
+            contestId,
+            index: problem.index.toUpperCase(),
+            name: problem.name,
+            status: "active",
+            addedAt: now().toISOString(),
+            rating: resolvedRating.rating,
+            ratingSource: resolvedRating.source,
+            codeforcesTags: normalizeCodeforcesTags(problem.tags),
+          };
+          result.added.push(task);
+          existingKeys.add(key);
+        } catch (error) {
+          result.failed.push({
+            problemId: id,
+            reason: error instanceof Error ? error.message : String(error),
+          });
+        }
+      }
+
+      if (result.added.length) {
+        user.tasks.push(...result.added);
+        writeJsonState(filePath, state);
+      }
+      return result;
     },
 
     listTasks(telegramId: number): CodeforcesTask[] {

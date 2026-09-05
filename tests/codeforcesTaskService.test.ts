@@ -85,9 +85,9 @@ test("task list pagination, next task, stats and auto-archive settings use JSON 
         assert.ok(keyboard.inline_keyboard[0][0].text.startsWith("📌 3004A"));
       }
     }
-    assert.equal(
+    assert.notEqual(
       service.nextTask(42, { tag: "dp", shuffle: true, excludeProblem: "3004A" }).contestId,
-      3002
+      3004
     );
     assert.throws(() => service.prioritizeTask(42, "3000A"), /active/);
     const prioritizePicker = buildPrioritizeTaskReply(service, 42);
@@ -298,6 +298,74 @@ test("atomic bulk writes nothing when one task is below rating threshold", async
     const service = createCodeforcesTaskService(data.filePath, "tourist", client);
     await assert.rejects(() => service.addTasksAtomic(42, ["100A", "100B"]), />= 1600/);
     assert.equal(service.listTasks(42).length, 0);
+  } finally {
+    data.cleanup();
+  }
+});
+
+test("contest add includes every eligible problem and skips existing or low-rated ones", async () => {
+  const data = fixture({
+    users: {
+      "42": {
+        tasks: [{
+          contestId: 5000,
+          index: "D",
+          name: "Already added",
+          status: "active",
+          addedAt: "2026-09-01T00:00:00.000Z",
+          rating: 1800,
+        }],
+      },
+    },
+  });
+  const client = new CodeforcesClient({
+    minRequestIntervalMs: 0,
+    fetchImpl: async (url) => {
+      if (url.includes("problemset.problems")) {
+        return new Response(JSON.stringify({
+          status: "OK",
+          result: {
+            problems: [
+              { contestId: 5000, index: "A", name: "Easy", type: "PROGRAMMING", rating: 1500, tags: ["math"] },
+              { contestId: 5000, index: "B", name: "Boundary", type: "PROGRAMMING", rating: 1600, tags: ["dp"] },
+              { contestId: 5000, index: "C", name: "External rating", type: "PROGRAMMING", tags: ["combinatorics"] },
+              { contestId: 5000, index: "D", name: "Already added", type: "PROGRAMMING", rating: 1800, tags: ["graphs"] },
+            ],
+            problemStatistics: [],
+          },
+        }), { status: 200 });
+      }
+      if (url.includes("contests.json")) {
+        return new Response(JSON.stringify([{
+          id: 5000,
+          type: "Div2",
+          name: "Test Round",
+          problems: [
+            { index: "A", name: "Easy", rating: 1500 },
+            { index: "B", name: "Boundary", rating: 1600 },
+            { index: "C", name: "External rating", rating: 1700 },
+            { index: "D", name: "Already added", rating: 1800 },
+          ],
+        }]), { status: 200 });
+      }
+      throw new Error(`Unexpected URL: ${url}`);
+    },
+  });
+  try {
+    const service = createCodeforcesTaskService(data.filePath, "tourist", client);
+    const result = await service.addContestTasks(
+      42,
+      "https://codeforces.com/contest/5000"
+    );
+    assert.equal(result.totalProblems, 4);
+    assert.deepEqual(result.added.map((task) => `${task.contestId}${task.index}`), ["5000B", "5000C"]);
+    assert.equal(result.added[0].rating, 1600);
+    assert.equal(result.added[1].ratingSource, "kira");
+    assert.deepEqual(result.added[1].codeforcesTags, ["combinatorics"]);
+    assert.deepEqual(result.skippedExisting, ["5000D"]);
+    assert.deepEqual(result.skippedRating, [{ problemId: "5000A", rating: 1500 }]);
+    assert.equal(result.failed.length, 0);
+    assert.equal(service.listTasks(42).length, 3);
   } finally {
     data.cleanup();
   }

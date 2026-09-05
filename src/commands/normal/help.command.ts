@@ -27,6 +27,7 @@ Quy ước: lệnh Emergency/Two-Factor đặt password ngay sau tên lệnh:
 /focus blwlist
 
 /task add <problem> — chỉ nhận bài rating >= 1600
+/task add contest <id|url> — thêm mọi bài đủ rating của một contest
 /task add bulk <id|url>... [--atomic] — hỗ trợ dấu phẩy, chọn gắn chung tag sau khi thêm
 /task list — chỉ xem task active
 /task list all — xem cả task đã AC
