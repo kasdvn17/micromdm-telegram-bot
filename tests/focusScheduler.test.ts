@@ -40,3 +40,25 @@ test("recurring schedule and sleep can overlap without losing either owner", () 
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("an earlier focus off unlocks sleep mode without three new AC tasks", () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "micromdm-focus-prior-off-"));
+  const file = path.join(dir, "schedule.json");
+  try {
+    const scheduler = new FocusScheduler(file, async () => {}, async () => {}, async () => {}, async () => {});
+    const daytime = new Date(2026, 8, 2, 18, 0);
+    scheduler.recordFocusOff(daytime);
+
+    const evening = new Date(2026, 8, 2, 22, 30);
+    const status = scheduler.getSleepUnlockStatus(evening);
+    assert.equal(status.acceptedTaskCount, 0);
+    assert.equal(status.unlockedByEarlierFocusOff, true);
+    assert.equal(status.eligible, true);
+    assert.equal(scheduler.disableSleepForCurrentSession(evening), true);
+
+    const nextEvening = new Date(2026, 8, 3, 22, 30);
+    assert.equal(scheduler.getSleepUnlockStatus(nextEvening).unlockedByEarlierFocusOff, false);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

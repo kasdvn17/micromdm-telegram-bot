@@ -36,11 +36,16 @@ export function createFocusCommand(
         case "off":
           {
             const status = focusService.status();
-            codeforcesTasks?.assertFocusOffAllowed(
-              ctx.message.telegramId,
-              focusOffGateOptions(status)
-            );
-            const result = await focusService.disable(!!codeforcesTasks);
+            const sleepBypass =
+              status.sleepUnlock.withinTimeRange &&
+              status.sleepUnlock.unlockedByEarlierFocusOff;
+            if (!sleepBypass) {
+              codeforcesTasks?.assertFocusOffAllowed(
+                ctx.message.telegramId,
+                focusOffGateOptions(status)
+              );
+            }
+            const result = await focusService.disable(!!codeforcesTasks || sleepBypass);
             if (result.sleepModeDisabled) {
               return result.focusStillActive
                 ? "🌙 Sleep Mode đã tắt cho phiên hôm nay, nhưng Focus vẫn bật do recurring schedule đang active."
@@ -64,7 +69,9 @@ export function createFocusCommand(
             return `🌙 Sleep Mode đã được TẮT cho phiên hôm nay.${breakInfo}`;
           }
           if (status.withinSleep) {
-            return `😴 Đang trong Sleep Mode (22:00 - 05:00). Cần đủ 3 task AC từ lúc Sleep bắt đầu và /refresh để dùng /focus off.${breakInfo}`;
+            return status.sleepUnlock.unlockedByEarlierFocusOff
+              ? `😴 Đang trong Sleep Mode (22:00 - 05:00). /focus off đã được mở khóa vì hôm nay bạn từng tắt Focus thành công.${breakInfo}`
+              : `😴 Đang trong Sleep Mode (22:00 - 05:00). Cần đủ 3 task AC từ lúc Sleep bắt đầu và /refresh để dùng /focus off.${breakInfo}`;
           }
           if (status.onBreak) {
             return `🎯 Focus đang TẠM NGƯNG (break) - còn ${formatDuration(status.breakRemainingMs ?? 0)}, sẽ tự bật lại nếu vẫn trong khung giờ schedule.${breakInfo}`;

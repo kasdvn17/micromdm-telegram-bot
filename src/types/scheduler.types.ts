@@ -20,6 +20,12 @@ export interface FocusSchedule {
 
 export interface SchedulerState {
   schedules: FocusSchedule[];
+  /** Lần /focus off gần nhất theo ngày local. Sleep Mode của cùng ngày này
+   *  được phép tắt lại mà không phải hoàn thành thêm 3 task sau 22:00. */
+  lastFocusOff?: {
+    date: string;
+    disabledAt: string;
+  };
   /** ISO timestamp - trong lúc breakUntil > now, Focus bị tạm ngưng dù đang
    *  trong khung giờ recurring active (đặt bởi /focus break <time>). Tự hết
    *  hiệu lực khi qua mốc thời gian này - scheduler tick sẽ tự bật lại Focus
@@ -48,6 +54,7 @@ export interface SleepUnlockStatus {
   acceptedTaskCount: number;
   requiredTaskCount: number;
   eligible: boolean;
+  unlockedByEarlierFocusOff: boolean;
   disabled: boolean;
 }
 

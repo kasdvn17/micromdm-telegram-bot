@@ -34,6 +34,7 @@ test("dashboard break and focus off require previously refreshed gate state", as
       acceptedTaskCount: 0,
       requiredTaskCount: 3,
       eligible: false,
+      unlockedByEarlierFocusOff: false,
       disabled: false,
     },
   };
@@ -91,4 +92,11 @@ test("dashboard break and focus off require previously refreshed gate state", as
   assert.equal(refreshCalls, 0, "break/off must never fetch submissions implicitly");
   assert.equal(breakAssertions, 1);
   assert.equal(offAssertions, 1);
+
+  status.withinSleep = true;
+  status.sleepUnlock.withinTimeRange = true;
+  status.sleepUnlock.unlockedByEarlierFocusOff = true;
+  callback!(query("off"));
+  await flush();
+  assert.equal(offAssertions, 1, "sleep bypass must not require the 3/3 AC assertion");
 });

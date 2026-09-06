@@ -226,6 +226,7 @@ export class FocusScheduler {
         acceptedTaskCount: 0,
         requiredTaskCount: FocusScheduler.SLEEP_UNLOCK_REQUIRED_AC,
         eligible: false,
+        unlockedByEarlierFocusOff: false,
         disabled: false,
       };
     }
@@ -233,15 +234,29 @@ export class FocusScheduler {
     const state = this.readState();
     const current = state.sleepUnlock?.sessionDate === sessionDate ? state.sleepUnlock : undefined;
     const acceptedTaskCount = current?.acceptedTaskCount ?? 0;
+    const unlockedByEarlierFocusOff = state.lastFocusOff?.date === sessionDate;
     return {
       withinTimeRange: true,
       sessionDate,
       sessionStartedAt: sleepSessionStart(now).toISOString(),
       acceptedTaskCount,
       requiredTaskCount: FocusScheduler.SLEEP_UNLOCK_REQUIRED_AC,
-      eligible: acceptedTaskCount >= FocusScheduler.SLEEP_UNLOCK_REQUIRED_AC,
+      eligible:
+        unlockedByEarlierFocusOff ||
+        acceptedTaskCount >= FocusScheduler.SLEEP_UNLOCK_REQUIRED_AC,
+      unlockedByEarlierFocusOff,
       disabled: !!current?.disabledAt,
     };
+  }
+
+  /** Ghi nhận một lần người dùng chủ động /focus off thành công trong ngày local. */
+  recordFocusOff(now: Date = new Date()): void {
+    const state = this.readState();
+    state.lastFocusOff = {
+      date: todayDateStr(now),
+      disabledAt: now.toISOString(),
+    };
+    this.writeState(state);
   }
 
   /** Ghi nhận các task vừa được /refresh xác nhận, chỉ tính lần AC đầu tiên sau 22:00. */
@@ -275,11 +290,7 @@ export class FocusScheduler {
   disableSleepForCurrentSession(now: Date = new Date(), force = false): boolean {
     if (!this.isWithinSleepTimeRange(now)) return false;
     const state = this.ensureSleepSession(now);
-    if (
-      !force &&
-      (!state.sleepUnlock ||
-        state.sleepUnlock.acceptedTaskCount < FocusScheduler.SLEEP_UNLOCK_REQUIRED_AC)
-    ) {
+    if (!force && !this.getSleepUnlockStatus(now).eligible) {
       return false;
     }
     const sleepUnlock = state.sleepUnlock!;

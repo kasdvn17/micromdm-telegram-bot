@@ -40,7 +40,7 @@ export interface FocusOwnershipDebug {
 
 export interface FocusServiceApi {
   enable(durationMs?: number): Promise<void>;
-  /** `unlockedForToday` chỉ được truyền true sau khi Codeforces gate xác nhận đủ 10 AC. */
+  /** `unlockedForToday` chỉ được truyền true sau khi Codeforces gate xác nhận đủ điều kiện. */
   disable(unlockedForToday?: boolean): Promise<FocusDisableResult>;
   status(): FocusStatus;
   extend(ms: number): Promise<void>;
@@ -222,6 +222,7 @@ export function createFocusService(
           );
         }
         scheduler.disableSleepForCurrentSession(new Date(), unlockedForToday);
+        scheduler.recordFocusOff();
         scheduler.cancelAllDurations();
         manuallyActive = false;
         if (unlockedForToday) {
@@ -250,6 +251,7 @@ export function createFocusService(
       scheduler.cancelAllDurations();
       manuallyActive = false;
       await removeFocusProfile("manual-disable");
+      scheduler.recordFocusOff();
       bus.publish({ type: "focus.disabled" });
       return { sleepModeDisabled: false, focusStillActive: false };
     },

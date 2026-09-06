@@ -78,7 +78,9 @@ export function attachMenuInteraction(
         }
         if (action === "off") {
           const status = focusService.status();
-          taskService.assertFocusOffAllowed(query.from.id, gateOptions(status));
+          if (!status.sleepUnlock.unlockedByEarlierFocusOff) {
+            taskService.assertFocusOffAllowed(query.from.id, gateOptions(status));
+          }
           await focusService.disable(true);
         }
         const reply = await buildDashboardReply(

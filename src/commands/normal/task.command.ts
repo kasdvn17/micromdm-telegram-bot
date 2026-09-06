@@ -396,7 +396,9 @@ export function createTaskCommand(
           `Tags: ${tags.length ? tags.map((tag) => `#${tag}`).join(", ") : "chưa có"}`,
           `Codeforces tags: ${taskService.listCodeforcesTags(ctx.message.telegramId).length} loại`,
           `Break: ${gate.acceptedSinceLastBreak}/${gate.breakRequiredCount}${gate.breakAllowed ? " ✅" : " ⏳"}`,
-          `${inSleep ? "Sleep Focus off" : "Daily Focus off"}: ${gate.focusOffAcceptedCount}/${gate.focusOffRequiredCount}${gate.focusOffAllowed ? " ✅" : " ⏳"}`,
+          focusStatus?.sleepUnlock.unlockedByEarlierFocusOff
+            ? "Sleep Focus off: đã mở khóa vì hôm nay từng Focus off ✅"
+            : `${inSleep ? "Sleep Focus off" : "Daily Focus off"}: ${gate.focusOffAcceptedCount}/${gate.focusOffRequiredCount}${gate.focusOffAllowed ? " ✅" : " ⏳"}`,
         ].join("\n");
       }
 
@@ -445,7 +447,9 @@ export function createRefreshCommand(
           ? `🏷 Đã đồng bộ Codeforces tags cho ${result.codeforcesTagsUpdated} task.`
           : "🏷 Codeforces tags không có thay đổi.",
         `☕ Break kế tiếp: ${gate.acceptedSinceLastBreak}/${gate.breakRequiredCount} bài AC mới${gate.breakAllowed ? " — đã mở khóa." : "."}`,
-        `${inSleep ? "🌙 Từ lúc Sleep bắt đầu" : "📅 Hôm nay"}: ${gate.focusOffAcceptedCount}/${gate.focusOffRequiredCount} task AC cho Focus off${gate.focusOffAllowed ? " — đã mở khóa." : "."}`,
+        focusStatus.sleepUnlock.unlockedByEarlierFocusOff
+          ? "🌙 Focus off đã mở khóa vì hôm nay bạn từng tắt Focus thành công."
+          : `${inSleep ? "🌙 Từ lúc Sleep bắt đầu" : "📅 Hôm nay"}: ${gate.focusOffAcceptedCount}/${gate.focusOffRequiredCount} task AC cho Focus off${gate.focusOffAllowed ? " — đã mở khóa." : "."}`,
         active.length === 0
           ? "✅ Không còn task active."
           : `⏳ Còn ${active.length} task chưa AC: ${active
