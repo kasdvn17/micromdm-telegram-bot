@@ -36,9 +36,19 @@ export function createFocusCommand(
         case "off":
           {
             const status = focusService.status();
+            // Backward compatibility: các bản cũ chưa ghi lastFocusOff vào JSON.
+            // Nếu đang ở Sleep Mode và gate 7 task của cả ngày đã đạt, đây là
+            // bằng chứng đủ để tái sử dụng quyền mở khóa của lần Focus off cũ.
+            const legacyDailyUnlock = !!(
+              status.sleepUnlock.withinTimeRange &&
+              codeforcesTasks?.getDailyGateStatus(
+                ctx.message.telegramId,
+                { requiredCount: 7 }
+              ).focusOffAllowed
+            );
             const sleepBypass =
               status.sleepUnlock.withinTimeRange &&
-              status.sleepUnlock.unlockedByEarlierFocusOff;
+              (status.sleepUnlock.unlockedByEarlierFocusOff || legacyDailyUnlock);
             if (!sleepBypass) {
               codeforcesTasks?.assertFocusOffAllowed(
                 ctx.message.telegramId,
@@ -57,6 +67,13 @@ export function createFocusCommand(
         case "status": {
           const status = focusService.status();
           const remaining = focusService.breakUsageRemainingToday();
+          const legacyDailyUnlock = !!(
+            status.sleepUnlock.withinTimeRange &&
+            codeforcesTasks?.getDailyGateStatus(
+              ctx.message.telegramId,
+              { requiredCount: 7 }
+            ).focusOffAllowed
+          );
           const gate = codeforcesTasks?.getDailyGateStatus(
             ctx.message.telegramId,
             focusOffGateOptions(status)
@@ -69,7 +86,7 @@ export function createFocusCommand(
             return `🌙 Sleep Mode đã được TẮT cho phiên hôm nay.${breakInfo}`;
           }
           if (status.withinSleep) {
-            return status.sleepUnlock.unlockedByEarlierFocusOff
+            return status.sleepUnlock.unlockedByEarlierFocusOff || legacyDailyUnlock
               ? `😴 Đang trong Sleep Mode (22:00 - 05:00). /focus off đã được mở khóa vì hôm nay bạn từng tắt Focus thành công.${breakInfo}`
               : `😴 Đang trong Sleep Mode (22:00 - 05:00). Cần đủ 3 task AC từ lúc Sleep bắt đầu và /refresh để dùng /focus off.${breakInfo}`;
           }

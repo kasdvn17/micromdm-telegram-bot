@@ -78,7 +78,11 @@ export function attachMenuInteraction(
         }
         if (action === "off") {
           const status = focusService.status();
-          if (!status.sleepUnlock.unlockedByEarlierFocusOff) {
+          const legacyDailyUnlock = !!(
+            status.sleepUnlock.withinTimeRange &&
+            taskService.getDailyGateStatus(query.from.id, { requiredCount: 7 }).focusOffAllowed
+          );
+          if (!status.sleepUnlock.unlockedByEarlierFocusOff && !legacyDailyUnlock) {
             taskService.assertFocusOffAllowed(query.from.id, gateOptions(status));
           }
           await focusService.disable(true);

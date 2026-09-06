@@ -99,4 +99,9 @@ test("dashboard break and focus off require previously refreshed gate state", as
   callback!(query("off"));
   await flush();
   assert.equal(offAssertions, 1, "sleep bypass must not require the 3/3 AC assertion");
+
+  status.sleepUnlock.unlockedByEarlierFocusOff = false;
+  callback!(query("off"));
+  await flush();
+  assert.equal(offAssertions, 1, "legacy daily 7/7 gate must migrate a pre-update focus off");
 });
