@@ -13,7 +13,7 @@ Telegram bot cá nhân để quản lý một thiết bị iOS Supervised thông
 - Theo dõi webhook MicroMDM và lưu lịch sử/log.
 - Tự động gửi một câu danh ngôn của người nổi tiếng mỗi giờ qua Telegram.
 - Tự động xử lý enrollment mới và profile mặc định.
-- Codeforces task gate: mỗi break cần 1 task AC mới kể từ break trước; Focus off cần 7 task AC trong ngày, riêng Sleep Mode cần 3 task AC từ lúc phiên bắt đầu. Bài AC trước khi được thêm vào task list vẫn được tính theo thời gian submission thật.
+- Codeforces task gate: mỗi break cần 1 task AC mới kể từ break trước; Focus off cần 7 task AC trong ngày, riêng Sleep Mode cần 3 task AC từ lúc phiên bắt đầu. Phiên Sleep tối Thứ 7/Chủ Nhật được một lượt break cố định 1 giờ không cần AC. Bài AC trước khi được thêm vào task list vẫn được tính theo thời gian submission thật.
 
 ## Quyền truy cập
 
@@ -21,11 +21,12 @@ Bot có 3 mức xác thực:
 
 | Mức | Xác thực | Lệnh |
 |---|---|---|
-| Normal | Telegram username trong `AUTHORIZED_TELEGRAM_USERNAME` | Các lệnh thông thường, Focus, Blacklist... |
+| Normal | `AUTHORIZED_TELEGRAM_USER_ID` nếu có, nếu không dùng username | Các lệnh thông thường, Focus, Blacklist... |
 | Emergency | `EMERGENCY_PASSWORD` | Các lệnh điều khiển thiết bị |
 | Two-Factor | Username chính chủ + `EMERGENCY_PASSWORD` | `/api` |
 
 Emergency không yêu cầu đúng username; vì vậy `EMERGENCY_PASSWORD` phải được giữ bí mật.
+Bot chỉ nhận command trong private chat. Message chứa Emergency password được tự xóa; sau 5 lần nhập sai, nguồn gửi bị khóa 10 phút. Nên cấu hình `AUTHORIZED_TELEGRAM_USER_ID` vì numeric ID không thay đổi khi đổi username.
 
 ## Danh sách lệnh
 
@@ -33,8 +34,9 @@ Emergency không yêu cầu đúng username; vì vậy `EMERGENCY_PASSWORD` ph�
 
 ```text
 /focus on|off|status|remaining|extend <duration>|cancel
+/focus debug
 /focus <duration>
-/focus break [duration]
+/focus break [duration] # Sleep tối T7/CN: mặc định 1h, chỉ 1 lần mỗi phiên
 /focus off # cần 7 task/ngày; trong Sleep Mode cần 3 task từ lúc phiên bắt đầu
 /focus schedule list
 /focus schedule add <start> <end> [days]
@@ -49,6 +51,9 @@ Emergency không yêu cầu đúng username; vì vậy `EMERGENCY_PASSWORD` ph�
 /task add <problem>
 /task add bulk <problemId|url>... [--atomic]
 /task list [all|archived] [tag]
+/task next [tag] [minRating] [maxRating]
+/task suggest [tag] [minRating] [maxRating]
+/task stats
 /task tag add [tag]
 /task tag edit [tag]
 /task tag remove [tag] [problemId]
@@ -57,11 +62,17 @@ Emergency không yêu cầu đúng username; vì vậy `EMERGENCY_PASSWORD` ph�
 /task remove <problemId>
 /task clear [tag] CONFIRM
 /task archive [problemId]
+/task archive auto on|off|status
+/task undo
 /task status
 /refresh [full]
 /status
+/menu
 
 /notify on|off|test
+/quote on|off|now|status
+/quote snooze <duration>
+/quote quiet <start> <end>|off
 /blacklist add <bundleId>
 /blacklist list
 /blacklist blwadd <website>
@@ -81,6 +92,10 @@ Emergency không yêu cầu đúng username; vì vậy `EMERGENCY_PASSWORD` ph�
 `/task tag list` liệt kê theo quan hệ problem → tags. `/task tag edit <tag>` mở toàn bộ problem với dấu `✅/❌`; bấm vào problem để toggle tag. `/task tag remove <tag>` cho phép gỡ riêng từng problem hoặc xóa tag khỏi toàn bộ problem. `/task tag add` dùng Force Reply để tạo tag rỗng rồi mở ngay màn hình edit. `/task tagedit` cũ vẫn được giữ để tương thích.
 
 Sau khi `/task add bulk` thêm được ít nhất một bài, bot hỏi có muốn gắn toàn bộ các bài vừa thêm thành công vào cùng một tag hay không. Chọn **Yes** để chọn tag hiện có hoặc tạo tag mới; chọn **No** để kết thúc interactive. Phiên chọn tag hết hạn sau 15 phút.
+
+`/task list` được phân trang bằng inline keyboard. `/task next` chọn task active lâu nhất phù hợp bộ lọc; `/task suggest` tìm bài public chưa nằm trong task list/chưa được refresh xác nhận AC và có nút thêm từng bài hoặc thêm tất cả. `/task stats` hiển thị tiến độ 7 ngày, rating trung bình, streak và tag. Auto-archive được điều khiển bằng `/task archive auto`; `/task undo` phục hồi thay đổi task/tag gần nhất mà không rollback submission gate.
+
+`/menu` mở dashboard với các nút Refresh, Break, Focus off, Tasks, Next task và Tags. **Break và Focus off không tự refresh:** phải bấm Refresh hoặc dùng `/refresh` trước, sau đó mới thực hiện thao tác gate.
 
 ### Emergency
 
@@ -163,7 +178,7 @@ Các lệnh nguy hiểm yêu cầu `CONFIRM` ở cuối:
 
 ## Sleep Mode
 
-Trong khoảng **22:00–05:00**, Focus tự động được bật. Không thể break; để dùng `/focus off`, cần `/refresh` xác nhận ít nhất 3 task Codeforces AC hợp lệ kể từ lúc phiên Sleep bắt đầu lúc 22:00.
+Trong khoảng **22:00–05:00**, Focus tự động được bật. Vào phiên Sleep bắt đầu tối **Thứ 7 hoặc Chủ Nhật**, `/focus break` được dùng đúng một lần với thời lượng cố định **1 giờ** và không yêu cầu task AC; lượt đã dùng được lưu trong JSON nên không reset khi restart hoặc qua nửa đêm. Các phiên còn lại không thể break. Để dùng `/focus off`, cần `/refresh` xác nhận ít nhất 3 task Codeforces AC hợp lệ kể từ lúc phiên Sleep bắt đầu lúc 22:00.
 
 Các nguồn Focus dùng chung một profile và được tính theo kiểu reference guard: recurring Focus kết thúc lúc 23:00 hoặc duration hết hạn sẽ không gỡ profile nếu Sleep Mode 22:00–05:00 vẫn đang giữ nó.
 
@@ -193,6 +208,7 @@ Cấu hình tối thiểu:
 ```env
 TELEGRAM_BOT_TOKEN=token_tu_botfather
 AUTHORIZED_TELEGRAM_USERNAME=username_khong_co_a_cong
+AUTHORIZED_TELEGRAM_USER_ID=123456789
 AUTHORIZED_TELEGRAM_CHAT_ID=
 EMERGENCY_PASSWORD=mat_khau_bi_mat
 
@@ -204,7 +220,7 @@ WEBHOOK_PATH=/webhook/micromdm
 DEVICE_UUID=udid_thiet_bi_ios
 ```
 
-Các biến bắt buộc để bot khởi động gồm `DEVICE_UUID`, `TELEGRAM_BOT_TOKEN`, `AUTHORIZED_TELEGRAM_USERNAME`, `EMERGENCY_PASSWORD`, `MICROMDM_URL` và `MICROMDM_API_KEY`. `AUTHORIZED_TELEGRAM_CHAT_ID` không bắt buộc; nếu bỏ trống, bot bind chat riêng sau tin nhắn đầu tiên từ username được uỷ quyền.
+Các biến bắt buộc để bot khởi động gồm `DEVICE_UUID`, `TELEGRAM_BOT_TOKEN`, `AUTHORIZED_TELEGRAM_USERNAME`, `EMERGENCY_PASSWORD`, `MICROMDM_URL` và `MICROMDM_API_KEY`. `AUTHORIZED_TELEGRAM_USER_ID` và `AUTHORIZED_TELEGRAM_CHAT_ID` không bắt buộc. Khi có user ID, bot ưu tiên xác thực bằng ID; nếu chat ID trống, bot bind chat riêng sau tin nhắn đầu tiên từ tài khoản được uỷ quyền.
 
 ### MicroMDM webhook
 
@@ -250,7 +266,7 @@ Trong Sleep Mode (22:00–05:00), `/focus off` đếm từ đúng 22:00 của ph
 
 ## Danh ngôn mỗi giờ
 
-Bot gửi một câu trong danh sách cục bộ sau mỗi 60 phút kể từ lúc khởi động. Không có tin nhắn gửi ngay lúc boot và mỗi interval chỉ gửi một câu. Có thể đổi chu kỳ bằng `QUOTE_INTERVAL_MS`; `/notify off` cũng tạm dừng các tin nhắn danh ngôn.
+Bot gửi một câu trong danh sách cục bộ sau mỗi 60 phút kể từ lúc khởi động. Không có tin nhắn gửi ngay lúc boot và mỗi interval chỉ gửi một câu. Có thể đổi chu kỳ bằng `QUOTE_INTERVAL_MS`; `/notify off` cũng tạm dừng toàn bộ notification. `/quote` có thể bật/tắt riêng, snooze hoặc đặt quiet hours; thiết lập được lưu trong `data/quote-settings.json`.
 
 ## Dữ liệu
 
@@ -263,11 +279,15 @@ Bot lưu trạng thái bằng JSON trong `data/`, gồm:
 - `history.json` — lịch sử sự kiện.
 - `mark-lost-state.json` — trạng thái Mark Lost.
 - `codeforces-tasks.json` — task Codeforces active/đã AC theo Telegram user ID.
+- `quote-settings.json` — trạng thái, snooze và quiet hours của danh ngôn.
+- Mỗi JSON state quan trọng có file `.bak` để phục hồi khi file chính bị hỏng.
 - `logs/` — log theo ngày.
 
 ## Bảo mật
 
 - Không commit `.env` thật lên Git.
+- Nên đặt `AUTHORIZED_TELEGRAM_USER_ID`; bot chỉ xử lý command trong private chat.
+- Emergency message chứa password được tự xóa và có rate limit thử sai.
 - Giữ `EMERGENCY_PASSWORD` và token dịch vụ ở nơi an toàn.
 - Chỉ cho phép MicroMDM truy cập webhook port nếu có thể.
 - `/api` chỉ nên được dùng khi thực sự cần gửi command MDM trực tiếp.

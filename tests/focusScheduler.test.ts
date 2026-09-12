@@ -62,3 +62,36 @@ test("an earlier focus off unlocks sleep mode without three new AC tasks", () =>
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("weekend sleep break lasts one hour and is available once per sleep session", () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "micromdm-weekend-sleep-break-"));
+  const file = path.join(dir, "schedule.json");
+  try {
+    const scheduler = new FocusScheduler(file, async () => {}, async () => {}, async () => {}, async () => {});
+    const saturdayNight = new Date(2026, 8, 5, 22, 30);
+    assert.equal(saturdayNight.getDay(), 6);
+    assert.equal(scheduler.getSleepUnlockStatus(saturdayNight).weekendSession, true);
+    assert.equal(scheduler.startWeekendSleepBreak(saturdayNight), true);
+
+    const duringBreak = new Date(2026, 8, 5, 23, 0);
+    const active = scheduler.getSleepUnlockStatus(duringBreak);
+    assert.equal(active.breakUsed, true);
+    assert.equal(active.breakActive, true);
+    assert.equal(active.breakRemainingMs, 30 * 60 * 1000);
+    assert.equal(scheduler.isWithinSleepWindow(duringBreak), false);
+    assert.equal(scheduler.startWeekendSleepBreak(duringBreak), false);
+
+    const afterMidnight = new Date(2026, 8, 6, 0, 45);
+    const persisted = new FocusScheduler(file, async () => {}, async () => {}, async () => {}, async () => {});
+    assert.equal(persisted.getSleepUnlockStatus(afterMidnight).weekendSession, true);
+    assert.equal(persisted.getSleepUnlockStatus(afterMidnight).breakUsed, true);
+    assert.equal(persisted.getSleepUnlockStatus(afterMidnight).breakActive, false);
+    assert.equal(persisted.startWeekendSleepBreak(afterMidnight), false);
+
+    const mondayNight = new Date(2026, 8, 7, 22, 30);
+    assert.equal(persisted.getSleepUnlockStatus(mondayNight).weekendSession, false);
+    assert.equal(persisted.startWeekendSleepBreak(mondayNight), false);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

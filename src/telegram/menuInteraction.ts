@@ -72,9 +72,18 @@ export function attachMenuInteraction(
           await taskService.refresh(query.from.id);
         }
         if (action === "break") {
-          taskService.assertBreakAllowed(query.from.id);
-          await focusService.breakFocus(15 * 60 * 1000);
-          taskService.recordBreakStarted(query.from.id);
+          const status = focusService.status();
+          const weekendSleep =
+            status.sleepUnlock.withinTimeRange &&
+            !status.sleepUnlock.disabled &&
+            status.sleepUnlock.weekendSession;
+          if (weekendSleep) {
+            await focusService.breakFocus(60 * 60 * 1000);
+          } else {
+            taskService.assertBreakAllowed(query.from.id);
+            await focusService.breakFocus(15 * 60 * 1000);
+            taskService.recordBreakStarted(query.from.id);
+          }
         }
         if (action === "off") {
           const status = focusService.status();

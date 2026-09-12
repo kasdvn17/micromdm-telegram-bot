@@ -152,11 +152,17 @@ export function createFocusService(
    *
    * Giờ tính CẢ Sleep Mode khi nó chưa được override cho phiên hiện tại.
    */
-  const isFocusActiveNow = (): boolean =>
-    manuallyActive ||
-    scheduler.activeDurationSchedule() !== null ||
-    (scheduler.isWithinScheduleWindowToday() && !scheduler.isOnBreak()) ||
-    scheduler.isWithinSleepWindow();
+  const isFocusActiveNow = (): boolean => {
+    // Sleep break cuối tuần là override tạm thời cho toàn bộ profile Focus,
+    // kể cả khi đang chồng manual/duration/recurring owner.
+    if (scheduler.getSleepUnlockStatus().breakActive) return false;
+    return (
+      manuallyActive ||
+      scheduler.activeDurationSchedule() !== null ||
+      (scheduler.isWithinScheduleWindowToday() && !scheduler.isOnBreak()) ||
+      scheduler.isWithinSleepWindow()
+    );
+  };
 
   const requireNotWithinSchedule = (actionLabel: string): void => {
     if (scheduler.isWithinSleepWindow()) {
@@ -265,7 +271,7 @@ export function createFocusService(
       const sleepUnlock = scheduler.getSleepUnlockStatus();
       if (active) {
         return {
-          active: true,
+          active: !sleepUnlock.breakActive,
           remainingMs: scheduler.remainingMs(active.id),
           withinSchedule,
           withinSleep,
@@ -275,7 +281,7 @@ export function createFocusService(
         };
       }
       return {
-        active: manuallyActive || (withinSchedule && !onBreak) || withinSleep,
+        active: isFocusActiveNow(),
         remainingMs: null,
         withinSchedule,
         withinSleep,
@@ -302,10 +308,33 @@ export function createFocusService(
     },
 
     async breakFocus(ms: number): Promise<void> {
-      if (scheduler.isWithinSleepWindow()) {
-        throw new ValidationError(
-          `Đang trong Sleep Mode (${FocusScheduler.SLEEP_START} - ${FocusScheduler.SLEEP_END}) - không thể break. AC 3 task Codeforces hợp lệ từ lúc Sleep bắt đầu, /refresh rồi dùng /focus off nếu muốn tắt phiên này.`
-        );
+      if (scheduler.isWithinSleepTimeRange()) {
+        const sleep = scheduler.getSleepUnlockStatus();
+        if (sleep.disabled) {
+          throw new ValidationError("Sleep Mode đã được tắt cho phiên hiện tại.");
+        }
+        if (!sleep.weekendSession) {
+          throw new ValidationError(
+            `Đang trong Sleep Mode (${FocusScheduler.SLEEP_START} - ${FocusScheduler.SLEEP_END}) - chỉ cho phép break vào phiên tối Thứ 7 hoặc Chủ Nhật.`
+          );
+        }
+        if (sleep.breakUsed) {
+          throw new ValidationError(
+            "Đã dùng lượt Sleep break 1 giờ duy nhất của phiên cuối tuần này."
+          );
+        }
+        if (ms !== FocusScheduler.WEEKEND_SLEEP_BREAK_MS) {
+          throw new ValidationError("Sleep break cuối tuần chỉ có thời lượng cố định 1 giờ.");
+        }
+        if (!scheduler.startWeekendSleepBreak()) {
+          throw new ValidationError("Không thể bắt đầu Sleep break cho phiên hiện tại.");
+        }
+        if (!isFocusActiveNow()) await removeFocusProfile("weekend-sleep-break-start");
+        bus.publish({
+          type: "focus.sleep.break.started",
+          durationMs: FocusScheduler.WEEKEND_SLEEP_BREAK_MS,
+        });
+        return;
       }
       if (!scheduler.isWithinScheduleWindowToday()) {
         throw new ValidationError(

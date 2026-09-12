@@ -33,6 +33,7 @@ export type AppEvent =
   | { type: "focus.sleep.enabled" }
   | { type: "focus.sleep.disabled" }
   | { type: "focus.sleep.overridden" }
+  | { type: "focus.sleep.break.started"; durationMs: number }
   | {
       type: "focus.break.started";
       durationMs: number;

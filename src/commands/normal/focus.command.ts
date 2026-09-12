@@ -85,6 +85,9 @@ export function createFocusCommand(
           if (status.sleepUnlock.withinTimeRange && status.sleepUnlock.disabled) {
             return `🌙 Sleep Mode đã được TẮT cho phiên hôm nay.${breakInfo}`;
           }
+          if (status.sleepUnlock.breakActive) {
+            return `🌙 Sleep break cuối tuần đang chạy - còn ${formatDuration(status.sleepUnlock.breakRemainingMs)}. Lượt duy nhất của phiên này đã được dùng.${breakInfo}`;
+          }
           if (status.withinSleep) {
             return status.sleepUnlock.unlockedByEarlierFocusOff || legacyDailyUnlock
               ? `😴 Đang trong Sleep Mode (22:00 - 05:00). /focus off đã được mở khóa vì hôm nay bạn từng tắt Focus thành công.${breakInfo}`
@@ -116,11 +119,26 @@ export function createFocusCommand(
         }
 
         case "break": {
-          codeforcesTasks?.assertBreakAllowed(ctx.message.telegramId);
-          const durationArg = rest[0] ?? "15m";
+          if (rest.length > 1) {
+            throw new ValidationError("Cú pháp: /focus break [duration]");
+          }
+          const status = focusService.status();
+          const weekendSleep =
+            status.sleepUnlock.withinTimeRange &&
+            !status.sleepUnlock.disabled &&
+            status.sleepUnlock.weekendSession;
+          if (!weekendSleep) {
+            codeforcesTasks?.assertBreakAllowed(ctx.message.telegramId);
+          }
+          const durationArg = rest[0] ?? (weekendSleep ? "1h" : "15m");
           const ms = parseDurationToMs(durationArg);
           await focusService.breakFocus(ms);
-          codeforcesTasks?.recordBreakStarted(ctx.message.telegramId);
+          if (!weekendSleep) {
+            codeforcesTasks?.recordBreakStarted(ctx.message.telegramId);
+          }
+          if (weekendSleep) {
+            return "🌙 Đã bắt đầu Sleep break 1 giờ. Đây là lượt duy nhất của phiên Sleep cuối tuần này.";
+          }
           const remaining = focusService.breakUsageRemainingToday();
           return (
             `⏸️ Đã tạm ngưng Focus trong ${formatDuration(ms)}. Sẽ tự bật lại nếu vẫn còn trong khung giờ schedule.\n` +

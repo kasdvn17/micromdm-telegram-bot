@@ -45,7 +45,7 @@ export async function buildDashboardReply(
       const text = [
         "📊 Tổng quan",
         `📱 ${device.deviceName ?? "Thiết bị"}: ${device.batteryLevel === undefined ? "pin ?" : `${Math.round(device.batteryLevel * 100)}%`} (${device.source})`,
-        `🎯 Focus: ${focus.active ? "BẬT" : "TẮT"}${focus.withinSleep ? " · Sleep Mode" : ""}${focus.onBreak ? ` · break còn ${formatDuration(focus.breakRemainingMs ?? 0)}` : ""}`,
+        `🎯 Focus: ${focus.active ? "BẬT" : "TẮT"}${focus.withinSleep ? " · Sleep Mode" : ""}${focus.sleepUnlock.breakActive ? ` · Sleep break còn ${formatDuration(focus.sleepUnlock.breakRemainingMs)}` : focus.onBreak ? ` · break còn ${formatDuration(focus.breakRemainingMs ?? 0)}` : ""}`,
         `☕ Gate break: ${gate.acceptedSinceLastBreak}/${gate.breakRequiredCount}${gate.breakAllowed ? " ✅" : " ⏳"}`,
         focus.sleepUnlock.unlockedByEarlierFocusOff || legacyDailyUnlock
           ? "🌙 Gate Focus off: đã mở khóa vì hôm nay từng Focus off ✅"
@@ -61,7 +61,15 @@ export async function buildDashboardReply(
             inline_keyboard: [
               [
                 { text: "🔄 Refresh", callback_data: "dash:refresh" },
-                { text: "☕ Break 15m", callback_data: "dash:break" },
+                {
+                  text:
+                    focus.sleepUnlock.withinTimeRange && focus.sleepUnlock.weekendSession
+                      ? focus.sleepUnlock.breakUsed
+                        ? "🌙 Sleep break đã dùng"
+                        : "🌙 Sleep break 1h"
+                      : "☕ Break 15m",
+                  callback_data: "dash:break",
+                },
               ],
               [
                 { text: "⏹ Focus off", callback_data: "dash:off" },

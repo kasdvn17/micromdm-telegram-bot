@@ -54,6 +54,8 @@ function formatEvent(event: AppEvent): string {
       return `😴 Sleep Mode: KẾT THÚC (05:00) - Focus trở về trạng thái bình thường.`;
     case "focus.sleep.overridden":
       return `🌙 Đã tắt Sleep Mode cho phần còn lại của phiên sau khi đạt đủ 3 task AC từ lúc Sleep bắt đầu.`;
+    case "focus.sleep.break.started":
+      return `🌙 Sleep break cuối tuần: tạm ngưng Focus trong ${Math.round(event.durationMs / 60000)} phút. Đây là lượt duy nhất của phiên Sleep này.`;
     case "focus.break.started":
       return (
         `⏸️ Focus tạm ngưng (break) trong ${Math.round(event.durationMs / 60000)} phút, sẽ tự bật lại nếu vẫn còn trong khung giờ schedule.\n` +

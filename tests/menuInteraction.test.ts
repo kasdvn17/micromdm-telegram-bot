@@ -36,10 +36,16 @@ test("dashboard break and focus off require previously refreshed gate state", as
       eligible: false,
       unlockedByEarlierFocusOff: false,
       disabled: false,
+      weekendSession: false,
+      breakUsed: false,
+      breakActive: false,
+      breakRemainingMs: 0,
     },
   };
   let refreshCalls = 0;
   let breakAssertions = 0;
+  let breakRecords = 0;
+  const breakDurations: number[] = [];
   let offAssertions = 0;
   const taskService = {
     refresh: async () => {
@@ -47,7 +53,7 @@ test("dashboard break and focus off require previously refreshed gate state", as
       return { checked: 0, newlySolved: [], stillActive: [], ratingsUpdated: 0 };
     },
     assertBreakAllowed: () => { breakAssertions++; },
-    recordBreakStarted: () => undefined,
+    recordBreakStarted: () => { breakRecords++; },
     assertFocusOffAllowed: () => { offAssertions++; },
     getDailyGateStatus: () => ({
       date: "2026-09-02",
@@ -62,7 +68,7 @@ test("dashboard break and focus off require previously refreshed gate state", as
   } as unknown as CodeforcesTaskServiceApi;
   const focusService = {
     status: () => status,
-    breakFocus: async () => undefined,
+    breakFocus: async (ms: number) => { breakDurations.push(ms); },
     disable: async () => ({ sleepModeDisabled: false, focusStillActive: false }),
     breakUsageRemainingToday: () => ({ breaksRemaining: 4, totalMsRemaining: 3_600_000 }),
   } as unknown as FocusServiceApi;
@@ -91,6 +97,8 @@ test("dashboard break and focus off require previously refreshed gate state", as
 
   assert.equal(refreshCalls, 0, "break/off must never fetch submissions implicitly");
   assert.equal(breakAssertions, 1);
+  assert.equal(breakRecords, 1);
+  assert.deepEqual(breakDurations, [15 * 60 * 1000]);
   assert.equal(offAssertions, 1);
 
   status.withinSleep = true;
@@ -104,4 +112,12 @@ test("dashboard break and focus off require previously refreshed gate state", as
   callback!(query("off"));
   await flush();
   assert.equal(offAssertions, 1, "legacy daily 7/7 gate must migrate a pre-update focus off");
+
+  status.sleepUnlock.weekendSession = true;
+  status.sleepUnlock.breakUsed = false;
+  callback!(query("break"));
+  await flush();
+  assert.equal(breakAssertions, 1, "weekend Sleep break must not require a Codeforces AC");
+  assert.equal(breakRecords, 1, "weekend Sleep break must not consume the regular break gate");
+  assert.equal(breakDurations.at(-1), 60 * 60 * 1000);
 });

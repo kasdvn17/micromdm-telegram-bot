@@ -44,6 +44,9 @@ export interface SchedulerState {
     acceptedTaskCount: number;
     qualifiedAt?: string;
     disabledAt?: string;
+    /** Sleep break cuối tuần: tối đa đúng một lần trong toàn bộ phiên 22:00-05:00. */
+    breakUsedAt?: string;
+    breakUntil?: string;
   };
 }
 
@@ -56,6 +59,10 @@ export interface SleepUnlockStatus {
   eligible: boolean;
   unlockedByEarlierFocusOff: boolean;
   disabled: boolean;
+  weekendSession: boolean;
+  breakUsed: boolean;
+  breakActive: boolean;
+  breakRemainingMs: number;
 }
 
 export interface MarkLostState {

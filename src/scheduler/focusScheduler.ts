@@ -61,6 +61,7 @@ export class FocusScheduler {
   static readonly SLEEP_START = "22:00";
   static readonly SLEEP_END = "05:00";
   static readonly SLEEP_UNLOCK_REQUIRED_AC = 3;
+  static readonly WEEKEND_SLEEP_BREAK_MS = 60 * 60 * 1000;
 
   private tickHandle: NodeJS.Timeout | null = null;
   private readonly firedRecurringToday = new Set<string>(); // key: `${scheduleId}:${dateStr}:${start|end}`
@@ -216,7 +217,16 @@ export class FocusScheduler {
 
   /** Sleep Mode đang có hiệu lực, đã tính trường hợp được mở khóa và tắt cho phiên này. */
   isWithinSleepWindow(now: Date = new Date()): boolean {
-    return this.isWithinSleepTimeRange(now) && !this.getSleepUnlockStatus(now).disabled;
+    const status = this.getSleepUnlockStatus(now);
+    return this.isWithinSleepTimeRange(now) && !status.disabled && !status.breakActive;
+  }
+
+  /** Cuối tuần được tính theo ngày phiên Sleep BẮT ĐẦU lúc 22:00. */
+  isWeekendSleepSession(now: Date = new Date()): boolean {
+    if (!this.isWithinSleepTimeRange(now)) return false;
+    const [year, month, day] = sleepSessionDateStr(now).split("-").map(Number);
+    const dow = new Date(year, month - 1, day).getDay();
+    return dow === 0 || dow === 6;
   }
 
   getSleepUnlockStatus(now: Date = new Date()): SleepUnlockStatus {
@@ -228,6 +238,10 @@ export class FocusScheduler {
         eligible: false,
         unlockedByEarlierFocusOff: false,
         disabled: false,
+        weekendSession: false,
+        breakUsed: false,
+        breakActive: false,
+        breakRemainingMs: 0,
       };
     }
     const sessionDate = sleepSessionDateStr(now);
@@ -235,6 +249,12 @@ export class FocusScheduler {
     const current = state.sleepUnlock?.sessionDate === sessionDate ? state.sleepUnlock : undefined;
     const acceptedTaskCount = current?.acceptedTaskCount ?? 0;
     const unlockedByEarlierFocusOff = state.lastFocusOff?.date === sessionDate;
+    const breakUntilMs = current?.breakUntil
+      ? new Date(current.breakUntil).getTime()
+      : Number.NaN;
+    const breakRemainingMs = Number.isFinite(breakUntilMs)
+      ? Math.max(0, breakUntilMs - now.getTime())
+      : 0;
     return {
       withinTimeRange: true,
       sessionDate,
@@ -246,7 +266,24 @@ export class FocusScheduler {
         acceptedTaskCount >= FocusScheduler.SLEEP_UNLOCK_REQUIRED_AC,
       unlockedByEarlierFocusOff,
       disabled: !!current?.disabledAt,
+      weekendSession: this.isWeekendSleepSession(now),
+      breakUsed: !!current?.breakUsedAt,
+      breakActive: breakRemainingMs > 0,
+      breakRemainingMs,
     };
+  }
+
+  /** Bắt đầu lượt Sleep break cuối tuần duy nhất của phiên hiện tại. */
+  startWeekendSleepBreak(now: Date = new Date()): boolean {
+    if (!this.isWithinSleepTimeRange(now) || !this.isWeekendSleepSession(now)) return false;
+    const state = this.ensureSleepSession(now);
+    if (state.sleepUnlock?.disabledAt || state.sleepUnlock?.breakUsedAt) return false;
+    state.sleepUnlock!.breakUsedAt = now.toISOString();
+    state.sleepUnlock!.breakUntil = new Date(
+      now.getTime() + FocusScheduler.WEEKEND_SLEEP_BREAK_MS
+    ).toISOString();
+    this.writeState(state);
+    return true;
   }
 
   /** Ghi nhận một lần người dùng chủ động /focus off thành công trong ngày local. */
@@ -296,6 +333,7 @@ export class FocusScheduler {
     const sleepUnlock = state.sleepUnlock!;
     if (!sleepUnlock.disabledAt) {
       sleepUnlock.disabledAt = now.toISOString();
+      delete sleepUnlock.breakUntil;
       this.writeState(state);
     }
     return true;
@@ -303,13 +341,19 @@ export class FocusScheduler {
 
   isOnBreak(now: Date = new Date()): boolean {
     const state = this.readState();
-    return !!state.breakUntil && new Date(state.breakUntil).getTime() > now.getTime();
+    const regularBreak = !!state.breakUntil && new Date(state.breakUntil).getTime() > now.getTime();
+    const sleepBreak = this.getSleepUnlockStatus(now).breakActive;
+    return regularBreak || sleepBreak;
   }
 
   breakRemainingMs(now: Date = new Date()): number | null {
     const state = this.readState();
-    if (!state.breakUntil) return null;
-    return Math.max(0, new Date(state.breakUntil).getTime() - now.getTime());
+    const regularRemaining = state.breakUntil
+      ? Math.max(0, new Date(state.breakUntil).getTime() - now.getTime())
+      : 0;
+    const sleepRemaining = this.getSleepUnlockStatus(now).breakRemainingMs;
+    const remaining = Math.max(regularRemaining, sleepRemaining);
+    return remaining > 0 ? remaining : null;
   }
 
   /**
@@ -421,6 +465,36 @@ export class FocusScheduler {
           await this.onBreakExpire();
         } catch (err) {
           getLogger().error("[focusScheduler] onBreakExpire lỗi", { error: (err as Error).message });
+        }
+      }
+    }
+
+    // Sleep break có state riêng theo phiên 22:00-05:00. Khi hết hạn, xóa
+    // breakUntil nhưng giữ breakUsedAt để restart hay qua nửa đêm không cấp
+    // thêm lượt thứ hai.
+    const sleepBreakUntilMs = state.sleepUnlock?.breakUntil
+      ? new Date(state.sleepUnlock.breakUntil).getTime()
+      : Number.NaN;
+    if (Number.isFinite(sleepBreakUntilMs) && sleepBreakUntilMs <= now.getTime()) {
+      const fresh = this.readState();
+      const freshSleepUnlock = fresh.sleepUnlock;
+      if (freshSleepUnlock && freshSleepUnlock.sessionDate === state.sleepUnlock?.sessionDate) {
+        delete freshSleepUnlock.breakUntil;
+        this.writeState(fresh);
+      }
+      const unlock = this.getSleepUnlockStatus(now);
+      if (
+        this.isWithinSleepTimeRange(now) &&
+        !unlock.disabled &&
+        !this.isOnBreak(now)
+      ) {
+        getLogger().info("[focusScheduler] Sleep break cuối tuần hết hạn - bật lại Focus");
+        try {
+          await this.onSleepTrigger("start");
+        } catch (err) {
+          getLogger().error("[focusScheduler] khôi phục sau Sleep break lỗi", {
+            error: (err as Error).message,
+          });
         }
       }
     }
