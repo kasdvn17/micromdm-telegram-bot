@@ -26,19 +26,7 @@ export async function buildDashboardReply(
 ): Promise<CommandResponse> {
       const focus = focusService.status();
       const breakRemaining = focusService.breakUsageRemainingToday();
-      const inSleep = !!(
-        focus.sleepUnlock.withinTimeRange && focus.sleepUnlock.sessionStartedAt
-      );
-      const gate = taskService.getDailyGateStatus(
-        telegramId,
-        inSleep
-          ? { since: focus.sleepUnlock.sessionStartedAt, requiredCount: 3 }
-          : { requiredCount: 7 }
-      );
-      const legacyDailyUnlock = !!(
-        inSleep &&
-        taskService.getDailyGateStatus(telegramId, { requiredCount: 7 }).focusOffAllowed
-      );
+      const gate = taskService.getDailyGateStatus(telegramId);
       const tasks = taskService.listTasks(telegramId);
       const activeTasks = tasks.filter((task) => task.status === "active" && !task.archivedAt);
       const device = await deviceInfoService.getDeviceInfo(false);
@@ -47,9 +35,7 @@ export async function buildDashboardReply(
         `📱 ${device.deviceName ?? "Thiết bị"}: ${device.batteryLevel === undefined ? "pin ?" : `${Math.round(device.batteryLevel * 100)}%`} (${device.source})`,
         `🎯 Focus: ${focus.active ? "BẬT" : "TẮT"}${focus.withinSleep ? " · Sleep Mode" : ""}${focus.sleepUnlock.breakActive ? ` · Sleep break còn ${formatDuration(focus.sleepUnlock.breakRemainingMs)}` : focus.onBreak ? ` · break còn ${formatDuration(focus.breakRemainingMs ?? 0)}` : ""}`,
         `☕ Gate break: ${gate.acceptedSinceLastBreak}/${gate.breakRequiredCount}${gate.breakAllowed ? " ✅" : " ⏳"}`,
-        focus.sleepUnlock.unlockedByEarlierFocusOff || legacyDailyUnlock
-          ? "🌙 Gate Focus off: đã mở khóa vì hôm nay từng Focus off ✅"
-          : `${inSleep ? "🌙" : "📅"} Gate Focus off: ${gate.focusOffAcceptedCount}/${gate.focusOffRequiredCount}${gate.focusOffAllowed ? " ✅" : " ⏳"}`,
+        "⏹ Focus off: luôn khả dụng, không yêu cầu task AC",
         `📋 Task: ${activeTasks.length} active / ${tasks.filter((task) => task.status === "solved" && !task.archivedAt).length} đã AC`,
         `⏱ Hạn mức break còn: ${breakRemaining.breaksRemaining} lần / ${formatDuration(breakRemaining.totalMsRemaining)}`,
       ].join("\n");

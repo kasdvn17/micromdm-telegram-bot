@@ -10,12 +10,6 @@ import {
 } from "./taskTagInteraction";
 import { formatError } from "./replyFormatter";
 
-function gateOptions(status: ReturnType<FocusServiceApi["status"]>) {
-  return status.sleepUnlock.withinTimeRange && status.sleepUnlock.sessionStartedAt
-    ? { since: status.sleepUnlock.sessionStartedAt, requiredCount: 3 }
-    : { requiredCount: 7 };
-}
-
 export function attachMenuInteraction(
   bot: TelegramBot,
   focusService: FocusServiceApi,
@@ -86,15 +80,7 @@ export function attachMenuInteraction(
           }
         }
         if (action === "off") {
-          const status = focusService.status();
-          const legacyDailyUnlock = !!(
-            status.sleepUnlock.withinTimeRange &&
-            taskService.getDailyGateStatus(query.from.id, { requiredCount: 7 }).focusOffAllowed
-          );
-          if (!status.sleepUnlock.unlockedByEarlierFocusOff && !legacyDailyUnlock) {
-            taskService.assertFocusOffAllowed(query.from.id, gateOptions(status));
-          }
-          await focusService.disable(true);
+          await focusService.disable();
         }
         const reply = await buildDashboardReply(
           focusService,

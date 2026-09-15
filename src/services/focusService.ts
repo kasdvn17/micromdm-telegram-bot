@@ -40,8 +40,8 @@ export interface FocusOwnershipDebug {
 
 export interface FocusServiceApi {
   enable(durationMs?: number): Promise<void>;
-  /** `unlockedForToday` chỉ được truyền true sau khi Codeforces gate xác nhận đủ điều kiện. */
-  disable(unlockedForToday?: boolean): Promise<FocusDisableResult>;
+  /** Tắt mọi nguồn Focus của phiên hiện tại; không yêu cầu Codeforces gate. */
+  disable(): Promise<FocusDisableResult>;
   status(): FocusStatus;
   extend(ms: number): Promise<void>;
   cancel(): Promise<void>;
@@ -168,7 +168,7 @@ export function createFocusService(
     if (scheduler.isWithinSleepWindow()) {
       throw new ValidationError(
         `Đang trong Sleep Mode (${FocusScheduler.SLEEP_START} - ${FocusScheduler.SLEEP_END}) nên /focus ${actionLabel} không có tác dụng. ` +
-          `Có thể mở khóa /focus off bằng cách AC 3 task Codeforces hợp lệ từ lúc Sleep bắt đầu rồi dùng /refresh.`
+          `Có thể dùng /focus off bất kỳ lúc nào để tắt phiên hiện tại.`
       );
     }
     if (scheduler.isWithinScheduleWindowToday()) {
@@ -209,47 +209,25 @@ export function createFocusService(
       bus.publish({ type: "focus.enabled", durationMs });
     },
 
-    async disable(unlockedForToday = false): Promise<FocusDisableResult> {
-      if (safeModeService.isActive()) {
-        throw new ValidationError(
-          "Safe mode đang bật - dùng /safe off để tắt Focus."
-        );
-      }
+    async disable(): Promise<FocusDisableResult> {
       if (scheduler.isWithinSleepTimeRange()) {
-        const unlock = scheduler.getSleepUnlockStatus();
-        if (unlock.disabled && !unlockedForToday) {
-          const focusStillActive =
-            scheduler.isWithinScheduleWindowToday() && !scheduler.isOnBreak();
-          return { sleepModeDisabled: true, focusStillActive };
-        }
-        if (!unlockedForToday && !unlock.eligible) {
-          throw new ValidationError(
-            "Đang trong Sleep Mode. Cần AC ít nhất 3 task Codeforces hợp lệ từ lúc Sleep bắt đầu rồi dùng /refresh trước khi tắt."
-          );
-        }
-        scheduler.disableSleepForCurrentSession(new Date(), unlockedForToday);
+        scheduler.disableSleepForCurrentSession(new Date(), true);
         scheduler.recordFocusOff();
         scheduler.cancelAllDurations();
         manuallyActive = false;
-        if (unlockedForToday) {
-          while (scheduler.scheduleWindowToday()) {
-            scheduler.skipToday(scheduler.scheduleWindowToday()!.id);
-          }
-          scheduler.clearBreak();
+        while (scheduler.scheduleWindowToday()) {
+          scheduler.skipToday(scheduler.scheduleWindowToday()!.id);
         }
+        scheduler.clearBreak();
         const focusStillActive = scheduler.isWithinScheduleWindowToday() && !scheduler.isOnBreak();
         if (!focusStillActive) await removeFocusProfile("sleep-override");
         bus.publish({ type: "focus.sleep.overridden" });
         return { sleepModeDisabled: true, focusStillActive };
       }
-      if (unlockedForToday) {
-        while (scheduler.scheduleWindowToday()) {
-          scheduler.skipToday(scheduler.scheduleWindowToday()!.id);
-        }
-        scheduler.clearBreak();
-      } else {
-        requireNotWithinSchedule("off");
+      while (scheduler.scheduleWindowToday()) {
+        scheduler.skipToday(scheduler.scheduleWindowToday()!.id);
       }
+      scheduler.clearBreak();
       // Dọn TOÀN BỘ duration-schedule (không chỉ 1 cái tìm được bởi
       // activeDurationSchedule()) để tránh còn sót schedule "ma" tự hết hạn
       // sau này và bắn thông báo "focus.disabled" giả dù người dùng đã tắt

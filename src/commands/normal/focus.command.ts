@@ -6,19 +6,12 @@ import { CodeforcesTaskServiceApi } from "../../services/codeforcesTaskService";
 
 const DAY_NAMES = ["CN", "T2", "T3", "T4", "T5", "T6", "T7"];
 
-function focusOffGateOptions(status: ReturnType<FocusServiceApi["status"]>) {
-  return status.sleepUnlock.withinTimeRange && status.sleepUnlock.sessionStartedAt
-    ? { since: status.sleepUnlock.sessionStartedAt, requiredCount: 3 }
-    : { requiredCount: 7 };
-}
-
 export function createFocusCommand(
   focusService: FocusServiceApi,
   codeforcesTasks?: Pick<
     CodeforcesTaskServiceApi,
     | "assertBreakAllowed"
     | "recordBreakStarted"
-    | "assertFocusOffAllowed"
     | "getDailyGateStatus"
   >
 ): CommandDefinition {
@@ -35,27 +28,7 @@ export function createFocusCommand(
 
         case "off":
           {
-            const status = focusService.status();
-            // Backward compatibility: các bản cũ chưa ghi lastFocusOff vào JSON.
-            // Nếu đang ở Sleep Mode và gate 7 task của cả ngày đã đạt, đây là
-            // bằng chứng đủ để tái sử dụng quyền mở khóa của lần Focus off cũ.
-            const legacyDailyUnlock = !!(
-              status.sleepUnlock.withinTimeRange &&
-              codeforcesTasks?.getDailyGateStatus(
-                ctx.message.telegramId,
-                { requiredCount: 7 }
-              ).focusOffAllowed
-            );
-            const sleepBypass =
-              status.sleepUnlock.withinTimeRange &&
-              (status.sleepUnlock.unlockedByEarlierFocusOff || legacyDailyUnlock);
-            if (!sleepBypass) {
-              codeforcesTasks?.assertFocusOffAllowed(
-                ctx.message.telegramId,
-                focusOffGateOptions(status)
-              );
-            }
-            const result = await focusService.disable(!!codeforcesTasks || sleepBypass);
+            const result = await focusService.disable();
             if (result.sleepModeDisabled) {
               return result.focusStillActive
                 ? "🌙 Sleep Mode đã tắt cho phiên hôm nay, nhưng Focus vẫn bật do recurring schedule đang active."
@@ -67,19 +40,11 @@ export function createFocusCommand(
         case "status": {
           const status = focusService.status();
           const remaining = focusService.breakUsageRemainingToday();
-          const legacyDailyUnlock = !!(
-            status.sleepUnlock.withinTimeRange &&
-            codeforcesTasks?.getDailyGateStatus(
-              ctx.message.telegramId,
-              { requiredCount: 7 }
-            ).focusOffAllowed
-          );
           const gate = codeforcesTasks?.getDailyGateStatus(
-            ctx.message.telegramId,
-            focusOffGateOptions(status)
+            ctx.message.telegramId
           );
           const codeforcesInfo = gate
-            ? `\nCodeforces tasks: ${gate.acceptedSinceLastBreak}/${gate.breakRequiredCount} task mới cho break; ${gate.focusOffAcceptedCount}/${gate.focusOffRequiredCount} task cho /focus off.`
+            ? `\nCodeforces tasks: ${gate.acceptedSinceLastBreak}/${gate.breakRequiredCount} task mới cho break.`
             : "";
           const breakInfo = `\nBreak còn lại hôm nay: ${remaining.breaksRemaining} lần / ${formatDuration(remaining.totalMsRemaining)}.${codeforcesInfo}`;
           if (status.sleepUnlock.withinTimeRange && status.sleepUnlock.disabled) {
@@ -89,9 +54,7 @@ export function createFocusCommand(
             return `🌙 Sleep break cuối tuần đang chạy - còn ${formatDuration(status.sleepUnlock.breakRemainingMs)}. Lượt duy nhất của phiên này đã được dùng.${breakInfo}`;
           }
           if (status.withinSleep) {
-            return status.sleepUnlock.unlockedByEarlierFocusOff || legacyDailyUnlock
-              ? `😴 Đang trong Sleep Mode (22:00 - 05:00). /focus off đã được mở khóa vì hôm nay bạn từng tắt Focus thành công.${breakInfo}`
-              : `😴 Đang trong Sleep Mode (22:00 - 05:00). Cần đủ 3 task AC từ lúc Sleep bắt đầu và /refresh để dùng /focus off.${breakInfo}`;
+            return `😴 Đang trong Sleep Mode (22:00 - 05:00). Có thể dùng /focus off bất kỳ lúc nào.${breakInfo}`;
           }
           if (status.onBreak) {
             return `🎯 Focus đang TẠM NGƯNG (break) - còn ${formatDuration(status.breakRemainingMs ?? 0)}, sẽ tự bật lại nếu vẫn trong khung giờ schedule.${breakInfo}`;

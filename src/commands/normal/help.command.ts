@@ -15,7 +15,7 @@ Quy ước: lệnh Emergency/Two-Factor đặt password ngay sau tên lệnh:
 /focus debug — xem nguồn nào đang giữ profile Focus
 /focus <duration> — bật Focus theo thời lượng, vd /focus 90m
 /focus break [d] — cần 1 task AC; Sleep tối T7/CN được 1 lần × 1 giờ
-/focus off — cần 7 task/ngày; Sleep cần 3 task từ 22:00, trừ khi đã Focus off hôm đó
+/focus off — tắt Focus ngay, không yêu cầu điều kiện
 /focus schedule list
 /focus schedule add <start> <end> [days]
 /focus schedule enable|disable <id>

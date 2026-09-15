@@ -11,7 +11,7 @@ const flush = async (): Promise<void> => {
   await new Promise<void>((resolve) => setImmediate(resolve));
 };
 
-test("dashboard break and focus off require previously refreshed gate state", async () => {
+test("dashboard break keeps its gate while focus off is unconditional", async () => {
   let callback: ((query: TelegramBot.CallbackQuery) => void) | undefined;
   const bot = {
     on: (event: string, handler: (query: TelegramBot.CallbackQuery) => void) => {
@@ -99,19 +99,19 @@ test("dashboard break and focus off require previously refreshed gate state", as
   assert.equal(breakAssertions, 1);
   assert.equal(breakRecords, 1);
   assert.deepEqual(breakDurations, [15 * 60 * 1000]);
-  assert.equal(offAssertions, 1);
+  assert.equal(offAssertions, 0);
 
   status.withinSleep = true;
   status.sleepUnlock.withinTimeRange = true;
   status.sleepUnlock.unlockedByEarlierFocusOff = true;
   callback!(query("off"));
   await flush();
-  assert.equal(offAssertions, 1, "sleep bypass must not require the 3/3 AC assertion");
+  assert.equal(offAssertions, 0, "Sleep focus off must not require the 3/3 AC assertion");
 
   status.sleepUnlock.unlockedByEarlierFocusOff = false;
   callback!(query("off"));
   await flush();
-  assert.equal(offAssertions, 1, "legacy daily 7/7 gate must migrate a pre-update focus off");
+  assert.equal(offAssertions, 0, "focus off must not require the legacy daily 7/7 gate");
 
   status.sleepUnlock.weekendSession = true;
   status.sleepUnlock.breakUsed = false;
