@@ -31,7 +31,7 @@ function formatRating(rating?: number, source?: string): string {
 
 export function createTaskCommand(
   taskService: CodeforcesTaskServiceApi,
-  _focusService?: Pick<FocusServiceApi, "status">
+  focusService?: Pick<FocusServiceApi, "status">
 ): CommandDefinition {
   return {
     name: "task",
@@ -375,7 +375,16 @@ export function createTaskCommand(
         return `🗄 Đã archive ${count} task đã AC. Dữ liệu solvedAt vẫn được giữ để tính gate.`;
       }
       if (sub === "status") {
-        const gate = taskService.getDailyGateStatus(ctx.message.telegramId);
+        const focusStatus = focusService?.status();
+        const inSleep = !!(
+          focusStatus?.sleepUnlock.withinTimeRange && focusStatus.sleepUnlock.sessionStartedAt
+        );
+        const gate = taskService.getDailyGateStatus(
+          ctx.message.telegramId,
+          inSleep
+            ? { since: focusStatus!.sleepUnlock.sessionStartedAt, requiredCount: 3 }
+            : { requiredCount: 7 }
+        );
         const tasks = taskService.listTasks(ctx.message.telegramId);
         const active = tasks.filter((task) => task.status === "active" && !task.archivedAt);
         const solved = tasks.filter((task) => task.status === "solved" && !task.archivedAt);
@@ -387,7 +396,9 @@ export function createTaskCommand(
           `Tags: ${tags.length ? tags.map((tag) => `#${tag}`).join(", ") : "chưa có"}`,
           `Codeforces tags: ${taskService.listCodeforcesTags(ctx.message.telegramId).length} loại`,
           `Break: ${gate.acceptedSinceLastBreak}/${gate.breakRequiredCount}${gate.breakAllowed ? " ✅" : " ⏳"}`,
-          "Focus off: luôn khả dụng, không yêu cầu task AC",
+          focusStatus?.sleepUnlock.unlockedByEarlierFocusOff
+            ? "Sleep Focus off: đã mở khóa vì hôm nay từng Focus off ✅"
+            : `${inSleep ? "Sleep Focus off" : "Daily Focus off"}: ${gate.focusOffAcceptedCount}/${gate.focusOffRequiredCount}${gate.focusOffAllowed ? " ✅" : " ⏳"}`,
         ].join("\n");
       }
 
@@ -400,7 +411,7 @@ export function createTaskCommand(
 
 export function createRefreshCommand(
   taskService: CodeforcesTaskServiceApi,
-  _focusService: Pick<FocusServiceApi, "status">
+  focusService: Pick<FocusServiceApi, "status">
 ): CommandDefinition {
   return {
     name: "refresh",
@@ -411,7 +422,16 @@ export function createRefreshCommand(
         throw new ValidationError("Cú pháp: /refresh [full]");
       }
       const result = await taskService.refresh(ctx.message.telegramId, { full: mode === "full" });
-      const gate = taskService.getDailyGateStatus(ctx.message.telegramId);
+      const focusStatus = focusService.status();
+      const inSleep =
+        focusStatus.sleepUnlock.withinTimeRange &&
+        !!focusStatus.sleepUnlock.sessionStartedAt;
+      const gate = taskService.getDailyGateStatus(
+        ctx.message.telegramId,
+        inSleep
+          ? { since: focusStatus.sleepUnlock.sessionStartedAt, requiredCount: 3 }
+          : { requiredCount: 7 }
+      );
       const active = result.tasks.filter((task) => task.status === "active");
       const lines = [
         result.newlySolved.length > 0
@@ -427,7 +447,9 @@ export function createRefreshCommand(
           ? `🏷 Đã đồng bộ Codeforces tags cho ${result.codeforcesTagsUpdated} task.`
           : "🏷 Codeforces tags không có thay đổi.",
         `☕ Break kế tiếp: ${gate.acceptedSinceLastBreak}/${gate.breakRequiredCount} bài AC mới${gate.breakAllowed ? " — đã mở khóa." : "."}`,
-        "⏹ Focus off luôn khả dụng, không yêu cầu task AC.",
+        focusStatus.sleepUnlock.unlockedByEarlierFocusOff
+          ? "🌙 Focus off đã mở khóa vì hôm nay bạn từng tắt Focus thành công."
+          : `${inSleep ? "🌙 Từ lúc Sleep bắt đầu" : "📅 Hôm nay"}: ${gate.focusOffAcceptedCount}/${gate.focusOffRequiredCount} task AC cho Focus off${gate.focusOffAllowed ? " — đã mở khóa." : "."}`,
         active.length === 0
           ? "✅ Không còn task active."
           : `⏳ Còn ${active.length} task chưa AC: ${active

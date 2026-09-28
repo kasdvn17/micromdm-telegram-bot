@@ -13,7 +13,7 @@ Telegram bot cá nhân để quản lý một thiết bị iOS Supervised thông
 - Theo dõi webhook MicroMDM và lưu lịch sử/log.
 - Tự động gửi một câu danh ngôn của người nổi tiếng mỗi giờ qua Telegram.
 - Tự động xử lý enrollment mới và profile mặc định.
-- Codeforces task gate: mỗi break cần 1 task AC mới kể từ break trước. `/focus off` luôn khả dụng và không yêu cầu task AC. Phiên Sleep tối Thứ 7/Chủ Nhật được một lượt break cố định 1 giờ không cần AC. Bài AC trước khi được thêm vào task list vẫn được tính theo thời gian submission thật.
+- Codeforces task gate: mỗi break cần 1 task AC mới kể từ break trước; Focus off cần 7 task AC trong ngày, riêng Sleep Mode cần 3 task AC từ lúc phiên bắt đầu. Phiên Sleep tối Thứ 7/Chủ Nhật được một lượt break cố định 1 giờ không cần AC. Bài AC trước khi được thêm vào task list vẫn được tính theo thời gian submission thật.
 
 ## Quyền truy cập
 
@@ -37,7 +37,7 @@ Bot chỉ nhận command trong private chat. Message chứa Emergency password �
 /focus debug
 /focus <duration>
 /focus break [duration] # Sleep tối T7/CN: mặc định 1h, chỉ 1 lần mỗi phiên
-/focus off # luôn khả dụng, không yêu cầu điều kiện
+/focus off # cần 7 task/ngày; trong Sleep Mode cần 3 task từ lúc phiên bắt đầu
 /focus schedule list
 /focus schedule add <start> <end> [days]
 /focus schedule enable|disable <id>
@@ -95,7 +95,7 @@ Sau khi `/task add bulk` thêm được ít nhất một bài, bot hỏi có mu�
 
 `/task list` được phân trang bằng inline keyboard. `/task next` chọn task active lâu nhất phù hợp bộ lọc; `/task suggest` tìm bài public chưa nằm trong task list/chưa được refresh xác nhận AC và có nút thêm từng bài hoặc thêm tất cả. `/task stats` hiển thị tiến độ 7 ngày, rating trung bình, streak và tag. Auto-archive được điều khiển bằng `/task archive auto`; `/task undo` phục hồi thay đổi task/tag gần nhất mà không rollback submission gate.
 
-`/menu` mở dashboard với các nút Refresh, Break, Focus off, Tasks, Next task và Tags. **Break không tự refresh:** phải bấm Refresh hoặc dùng `/refresh` trước khi kiểm tra gate. Focus off không có gate và dùng được ngay.
+`/menu` mở dashboard với các nút Refresh, Break, Focus off, Tasks, Next task và Tags. **Break và Focus off không tự refresh:** phải bấm Refresh hoặc dùng `/refresh` trước, sau đó mới thực hiện thao tác gate.
 
 ### Emergency
 
@@ -178,7 +178,7 @@ Các lệnh nguy hiểm yêu cầu `CONFIRM` ở cuối:
 
 ## Sleep Mode
 
-Trong khoảng **22:00–05:00**, Focus tự động được bật. Vào phiên Sleep bắt đầu tối **Thứ 7 hoặc Chủ Nhật**, `/focus break` được dùng đúng một lần với thời lượng cố định **1 giờ** và không yêu cầu task AC; lượt đã dùng được lưu trong JSON nên không reset khi restart hoặc qua nửa đêm. Các phiên còn lại không thể break. `/focus off` luôn có thể dùng ngay để tắt phần còn lại của phiên Sleep.
+Trong khoảng **22:00–05:00**, Focus tự động được bật. Vào phiên Sleep bắt đầu tối **Thứ 7 hoặc Chủ Nhật**, `/focus break` được dùng đúng một lần với thời lượng cố định **1 giờ** và không yêu cầu task AC; lượt đã dùng được lưu trong JSON nên không reset khi restart hoặc qua nửa đêm. Các phiên còn lại không thể break. Để dùng `/focus off`, cần `/refresh` xác nhận ít nhất 3 task Codeforces AC hợp lệ kể từ lúc phiên Sleep bắt đầu lúc 22:00.
 
 Các nguồn Focus dùng chung một profile và được tính theo kiểu reference guard: recurring Focus kết thúc lúc 23:00 hoặc duration hết hạn sẽ không gỡ profile nếu Sleep Mode 22:00–05:00 vẫn đang giữ nó.
 
@@ -260,9 +260,9 @@ const difficulty = await getCodeforcesProblemRating(4, "A");
 
 `getCodeforcesProblemRating()` ưu tiên rating chính thức từ Codeforces. Nếu API chưa có rating, hàm dùng dataset JSON công khai của [Codeforces Problems](https://github.com/kira924age/CodeforcesProblems), cache 1 giờ và trả nguồn `kira`; nếu cả hai nguồn đều thiếu thì trả `source: "unrated"`. Dataset này cũng cung cấp metadata fallback khi `problemset.problems` bỏ sót các bài archive vẫn tồn tại, như `1350C`. `/task add` và `/task list` hiển thị difficulty kèm nguồn.
 
-Đặt `CODEFORCES_HANDLE` trong `.env`, sau đó dùng `/task add <problem>` (hỗ trợ mã, URL hoặc đúng tên bài). `/task add bulk` nhận mã/URL cách nhau bằng khoảng trắng hoặc dấu phẩy; thêm `--atomic` để nếu một bài lỗi thì không thêm bài nào. Sau bulk, bot cho phép gắn các bài vừa thêm thành công vào một tag chung. Chỉ bài có rating xác định và **từ 1600 trở lên** mới được thêm; rating chính thức và rating external Kira đều hợp lệ. Mỗi problem có thể chứa nhiều tag qua `/task tag`; `/task list` chỉ hiện task active chưa archive, còn `all` hiện cả task đã AC. Bài đã AC trước khi `/task add` vẫn được tính bình thường. `/refresh` dùng cache tăng dần; `/refresh full` hoặc full-sync tự động mỗi 24 giờ sẽ quét toàn bộ lịch sử. `solvedAt` luôn lấy submission `OK` đầu tiên, không lấy thời điểm refresh. Mỗi lần `/focus break` cần 1 task có `solvedAt` sau lần break trước; `/focus off` không dùng Codeforces gate.
+Đặt `CODEFORCES_HANDLE` trong `.env`, sau đó dùng `/task add <problem>` (hỗ trợ mã, URL hoặc đúng tên bài). `/task add bulk` nhận mã/URL cách nhau bằng khoảng trắng hoặc dấu phẩy; thêm `--atomic` để nếu một bài lỗi thì không thêm bài nào. Sau bulk, bot cho phép gắn các bài vừa thêm thành công vào một tag chung. Chỉ bài có rating xác định và **từ 1600 trở lên** mới được thêm; rating chính thức và rating external Kira đều hợp lệ. Mỗi problem có thể chứa nhiều tag qua `/task tag`; `/task list` chỉ hiện task active chưa archive, còn `all` hiện cả task đã AC. Bài đã AC trước khi `/task add` vẫn được tính bình thường. `/refresh` dùng cache tăng dần; `/refresh full` hoặc full-sync tự động mỗi 24 giờ sẽ quét toàn bộ lịch sử. `solvedAt` luôn lấy submission `OK` đầu tiên, không lấy thời điểm refresh. Mỗi lần `/focus break` cần 1 task có `solvedAt` sau lần break trước. Ngoài Sleep Mode, `/focus off` cần 7 task có `solvedAt` trong ngày hiện tại; trong Sleep Mode, cần 3 task có `solvedAt` từ lúc phiên bắt đầu.
 
-Trong Sleep Mode (22:00–05:00), `/focus off` không cần AC hay `/refresh` và sẽ tắt Sleep Mode cho phần còn lại của phiên hiện tại.
+Trong Sleep Mode (22:00–05:00), `/focus off` đếm từ đúng 22:00 của phiên, kể cả sau khi qua nửa đêm, và tắt Sleep Mode cho phần còn lại của phiên hiện tại. Gate ngoài Sleep tự reset khi sang ngày mới.
 
 ## Danh ngôn mỗi giờ
 
