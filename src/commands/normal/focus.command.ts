@@ -36,19 +36,8 @@ export function createFocusCommand(
         case "off":
           {
             const status = focusService.status();
-            // Backward compatibility: các bản cũ chưa ghi lastFocusOff vào JSON.
-            // Nếu đang ở Sleep Mode và gate 7 task của cả ngày đã đạt, đây là
-            // bằng chứng đủ để tái sử dụng quyền mở khóa của lần Focus off cũ.
-            const legacyDailyUnlock = !!(
-              status.sleepUnlock.withinTimeRange &&
-              codeforcesTasks?.getDailyGateStatus(
-                ctx.message.telegramId,
-                { requiredCount: 7 }
-              ).focusOffAllowed
-            );
             const sleepBypass =
-              status.sleepUnlock.withinTimeRange &&
-              (status.sleepUnlock.unlockedByEarlierFocusOff || legacyDailyUnlock);
+              status.sleepUnlock.withinTimeRange;
             if (!sleepBypass) {
               codeforcesTasks?.assertFocusOffAllowed(
                 ctx.message.telegramId,
