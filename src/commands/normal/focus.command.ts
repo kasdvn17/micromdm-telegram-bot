@@ -44,7 +44,7 @@ export function createFocusCommand(
                 focusOffGateOptions(status)
               );
             }
-            const result = await focusService.disable(!!codeforcesTasks || sleepBypass);
+            const result = await focusService.disable(true);
             if (result.sleepModeDisabled) {
               return result.focusStillActive
                 ? "🌙 Sleep Mode đã tắt cho phiên hôm nay, nhưng Focus vẫn bật do recurring schedule đang active."
