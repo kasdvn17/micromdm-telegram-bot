@@ -387,11 +387,11 @@ export function createFocusService(
     async skipToday(scheduleId?: string): Promise<FocusSchedule> {
       const now = new Date();
       const dow = now.getDay(); // 0 = Chủ nhật, 6 = Thứ bảy
-      if (dow !== 0 && dow !== 6) {
-        throw new ValidationError(
-          "/focus schedule skip chỉ dùng được vào Thứ 7/Chủ Nhật - không dùng được các ngày trong tuần (Thứ 2 - Thứ 6)."
-        );
-      }
+      // if (dow !== 0 && dow !== 6) {
+      //   throw new ValidationError(
+      //     "/focus schedule skip chỉ dùng được vào Thứ 7/Chủ Nhật - không dùng được các ngày trong tuần (Thứ 2 - Thứ 6)."
+      //   );
+      // }
 
       const wasActive = scheduler.isWithinScheduleWindowToday();
       const skipped = scheduler.skipToday(scheduleId);
