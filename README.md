@@ -13,7 +13,7 @@ Telegram bot cá nhân để quản lý một thiết bị iOS Supervised thông
 - Theo dõi webhook MicroMDM và lưu lịch sử/log.
 - Tự động gửi một câu danh ngôn của người nổi tiếng mỗi giờ qua Telegram.
 - Tự động xử lý enrollment mới và profile mặc định.
-- Codeforces task gate: mỗi break cần 1 task AC mới kể từ break trước; Focus off cần 7 task AC trong ngày, riêng Sleep Mode cần 3 task AC từ lúc phiên bắt đầu. Phiên Sleep tối Thứ 7/Chủ Nhật được một lượt break cố định 1 giờ không cần AC. Bài AC trước khi được thêm vào task list vẫn được tính theo thời gian submission thật.
+- Codeforces task gate: mỗi break cần 1 task AC mới kể từ break trước; Focus off cần 7 task AC trong ngày, riêng Sleep Mode cần 3 task AC từ lúc phiên bắt đầu. Phiên Sleep tối Thứ 6, Thứ 7 và Chủ Nhật được một lượt tắt Focus/break cố định 1 giờ không cần AC. Bài AC trước khi được thêm vào task list vẫn được tính theo thời gian submission thật.
 
 ## Quyền truy cập
 
@@ -36,7 +36,7 @@ Bot chỉ nhận command trong private chat. Message chứa Emergency password �
 /focus on|off|status|remaining|extend <duration>|cancel
 /focus debug
 /focus <duration>
-/focus break [duration] # Sleep tối T7/CN: mặc định 1h, chỉ 1 lần mỗi phiên
+/focus break [duration] # Sleep tối T6-CN: mặc định 1h, chỉ 1 lần mỗi phiên
 /focus off # cần 7 task/ngày; trong Sleep Mode cần 3 task từ lúc phiên bắt đầu
 /focus schedule list
 /focus schedule add <start> <end> [days]
@@ -178,7 +178,7 @@ Các lệnh nguy hiểm yêu cầu `CONFIRM` ở cuối:
 
 ## Sleep Mode
 
-Trong khoảng **22:00–05:00**, Focus tự động được bật. Vào phiên Sleep bắt đầu tối **Thứ 7 hoặc Chủ Nhật**, `/focus break` được dùng đúng một lần với thời lượng cố định **1 giờ** và không yêu cầu task AC; lượt đã dùng được lưu trong JSON nên không reset khi restart hoặc qua nửa đêm. Các phiên còn lại không thể break. Để dùng `/focus off`, cần `/refresh` xác nhận ít nhất 3 task Codeforces AC hợp lệ kể từ lúc phiên Sleep bắt đầu lúc 22:00.
+Trong khoảng **22:00–05:00**, Focus tự động được bật. Vào phiên Sleep bắt đầu tối **Thứ 6, Thứ 7 hoặc Chủ Nhật**, `/focus break` (hoặc `/focus off 1h`) được dùng đúng một lần với thời lượng cố định **1 giờ** và không yêu cầu task AC; lượt đã dùng được lưu trong JSON nên không reset khi restart hoặc qua nửa đêm. Các phiên còn lại không thể break. Để dùng `/focus off` tắt hẳn phiên Sleep, cần `/refresh` xác nhận ít nhất 3 task Codeforces AC hợp lệ kể từ lúc phiên Sleep bắt đầu lúc 22:00.
 
 Các nguồn Focus dùng chung một profile và được tính theo kiểu reference guard: recurring Focus kết thúc lúc 23:00 hoặc duration hết hạn sẽ không gỡ profile nếu Sleep Mode 22:00–05:00 vẫn đang giữ nó.
 

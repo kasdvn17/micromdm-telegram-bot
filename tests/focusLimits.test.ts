@@ -328,3 +328,110 @@ test("focus off passes false to disable when codeforces task service is absent",
   assert.equal(disableUnlockedArg, false);
   assert.equal(reply, "🎯 Focus mode đã TẮT.");
 });
+
+test("focus off in weekend sleep session (Friday - Sunday) allows 1-hour break without AC tasks", async () => {
+  let breakFocusCalls = 0;
+  let breakMsArg: number | undefined;
+  let disableCalls = 0;
+
+  const status = {
+    active: true,
+    remainingMs: null,
+    onBreak: false,
+    breakRemainingMs: null,
+    withinSchedule: false,
+    withinSleep: true,
+    sleepUnlock: {
+      withinTimeRange: true,
+      sessionStartedAt: "2026-10-23T22:00:00.000Z",
+      acceptedTaskCount: 0,
+      requiredTaskCount: 3,
+      eligible: false,
+      unlockedByEarlierFocusOff: false,
+      disabled: false,
+      weekendSession: true, // Friday, Saturday, or Sunday session
+      breakUsed: false,
+      breakActive: false,
+      breakRemainingMs: 0,
+    },
+  };
+
+  const focusService = {
+    status: () => status,
+    breakFocus: async (ms: number) => {
+      breakFocusCalls++;
+      breakMsArg = ms;
+      status.sleepUnlock.breakUsed = true;
+      status.sleepUnlock.breakActive = true;
+      status.sleepUnlock.breakRemainingMs = ms;
+    },
+    disable: async () => {
+      disableCalls++;
+      return { sleepModeDisabled: true, focusStillActive: false };
+    },
+  } as unknown as FocusServiceApi;
+
+  let gateAllowed = false;
+  const taskService = {
+    assertFocusOffAllowed: () => {
+      if (!gateAllowed) {
+        throw new ValidationError("Đang trong Sleep Mode: cần 3 task AC.");
+      }
+    },
+    getDailyGateStatus: () => ({
+      date: "2026-10-23",
+      breakAllowed: false,
+      focusOffAllowed: false,
+      breakRequiredCount: 1,
+      focusOffRequiredCount: 7,
+      acceptedSinceLastBreak: 0,
+      focusOffAcceptedCount: 0,
+    }),
+  } as unknown as CodeforcesTaskServiceApi;
+
+  const command = createFocusCommand(focusService, taskService);
+
+  // Case 1: /focus off 1h -> starts 1h break directly
+  const reply1 = await command.handler(makeContext("off", ["1h"]));
+  assert.equal(breakFocusCalls, 1);
+  assert.equal(breakMsArg, 3600000);
+  assert.equal(disableCalls, 0);
+  assert.equal(
+    reply1,
+    "🌙 Đã bắt đầu tắt Focus 1 giờ (Sleep break). Đây là lượt duy nhất của phiên Sleep cuối tuần này (Thứ 6 - CN)."
+  );
+
+  // Reset breakUsed for next test
+  status.sleepUnlock.breakUsed = false;
+  status.sleepUnlock.breakActive = false;
+  breakFocusCalls = 0;
+  breakMsArg = undefined;
+
+  // Case 2: /focus off (no args, 0 tasks solved) -> falls back to 1h break
+  const reply2 = await command.handler(makeContext("off"));
+  assert.equal(breakFocusCalls, 1);
+  assert.equal(breakMsArg, 3600000);
+  assert.equal(disableCalls, 0);
+  assert.equal(
+    reply2,
+    "🌙 Đã bắt đầu tắt Focus 1 giờ (Sleep break). Đây là lượt duy nhất của phiên Sleep cuối tuần này (Thứ 6 - CN)."
+  );
+
+  // Case 3: Once break is used, /focus off cannot use break again, requires 3 tasks
+  await assert.rejects(
+    async () => {
+      await command.handler(makeContext("off"));
+    },
+    (err: unknown) => {
+      assert(err instanceof ValidationError);
+      assert.equal((err as Error).message, "Đang trong Sleep Mode: cần 3 task AC.");
+      return true;
+    }
+  );
+
+  // Case 4: When 3 tasks are solved, /focus off completely disables Sleep Mode
+  gateAllowed = true;
+  const reply4 = await command.handler(makeContext("off"));
+  assert.equal(disableCalls, 1);
+  assert.equal(reply4, "🌙 Sleep Mode đã tắt cho phần còn lại của phiên hôm nay.");
+});

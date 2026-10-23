@@ -68,6 +68,14 @@ test("weekend sleep break lasts one hour and is available once per sleep session
   const file = path.join(dir, "schedule.json");
   try {
     const scheduler = new FocusScheduler(file, async () => {}, async () => {}, async () => {}, async () => {});
+    const fridayNight = new Date(2026, 8, 4, 22, 30);
+    assert.equal(fridayNight.getDay(), 5);
+    assert.equal(scheduler.getSleepUnlockStatus(fridayNight).weekendSession, true);
+
+    const thursdayNight = new Date(2026, 8, 3, 22, 30);
+    assert.equal(thursdayNight.getDay(), 4);
+    assert.equal(scheduler.getSleepUnlockStatus(thursdayNight).weekendSession, false);
+
     const saturdayNight = new Date(2026, 8, 5, 22, 30);
     assert.equal(saturdayNight.getDay(), 6);
     assert.equal(scheduler.getSleepUnlockStatus(saturdayNight).weekendSession, true);

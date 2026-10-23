@@ -1,5 +1,6 @@
 import { AuthTier, CommandContext, CommandDefinition } from "../../types/command.types";
 import { FocusServiceApi } from "../../services/focusService";
+import { FocusScheduler } from "../../scheduler/focusScheduler";
 import { parseDurationToMs, formatDuration, normalizeTimeOfDay, parseDaysOfWeek } from "../../utils/time";
 import { ValidationError } from "../../utils/errors";
 import { CodeforcesTaskServiceApi } from "../../services/codeforcesTaskService";
@@ -36,6 +37,20 @@ export function createFocusCommand(
         case "off":
           {
             const status = focusService.status();
+            const weekendSleep =
+              status.sleepUnlock.withinTimeRange &&
+              !status.sleepUnlock.disabled &&
+              status.sleepUnlock.weekendSession;
+
+            // Nếu người dùng chỉ định duration (vd: /focus off 1h), trong phiên Sleep cuối tuần
+            // (Thứ 6 => CN) sẽ kích hoạt lượt tắt Focus 1 giờ (Sleep break).
+            const durationArg = rest[0];
+            if (weekendSleep && durationArg) {
+              const ms = parseDurationToMs(durationArg);
+              await focusService.breakFocus(ms);
+              return "🌙 Đã bắt đầu tắt Focus 1 giờ (Sleep break). Đây là lượt duy nhất của phiên Sleep cuối tuần này (Thứ 6 - CN).";
+            }
+
             // Backward compatibility: các bản cũ chưa ghi lastFocusOff vào JSON.
             // Nếu đang ở Sleep Mode và gate 7 task của cả ngày đã đạt, đây là
             // bằng chứng đủ để tái sử dụng quyền mở khóa của lần Focus off cũ.
@@ -50,10 +65,29 @@ export function createFocusCommand(
               status.sleepUnlock.withinTimeRange &&
               (status.sleepUnlock.unlockedByEarlierFocusOff || legacyDailyUnlock);
             if (!sleepBypass) {
-              codeforcesTasks?.assertFocusOffAllowed(
-                ctx.message.telegramId,
-                focusOffGateOptions(status)
-              );
+              if (weekendSleep && !status.sleepUnlock.breakUsed && !status.sleepUnlock.breakActive) {
+                let gatePassed = false;
+                if (codeforcesTasks) {
+                  try {
+                    codeforcesTasks.assertFocusOffAllowed(
+                      ctx.message.telegramId,
+                      focusOffGateOptions(status)
+                    );
+                    gatePassed = true;
+                  } catch {
+                    gatePassed = false;
+                  }
+                }
+                if (!gatePassed) {
+                  await focusService.breakFocus(FocusScheduler.WEEKEND_SLEEP_BREAK_MS);
+                  return "🌙 Đã bắt đầu tắt Focus 1 giờ (Sleep break). Đây là lượt duy nhất của phiên Sleep cuối tuần này (Thứ 6 - CN).";
+                }
+              } else {
+                codeforcesTasks?.assertFocusOffAllowed(
+                  ctx.message.telegramId,
+                  focusOffGateOptions(status)
+                );
+              }
             }
             const result = await focusService.disable(!!codeforcesTasks || sleepBypass);
             if (result.sleepModeDisabled) {
@@ -137,7 +171,7 @@ export function createFocusCommand(
             codeforcesTasks?.recordBreakStarted(ctx.message.telegramId);
           }
           if (weekendSleep) {
-            return "🌙 Đã bắt đầu Sleep break 1 giờ. Đây là lượt duy nhất của phiên Sleep cuối tuần này.";
+            return "🌙 Đã bắt đầu Sleep break 1 giờ. Đây là lượt duy nhất của phiên Sleep cuối tuần này (Thứ 6 - CN).";
           }
           const remaining = focusService.breakUsageRemainingToday();
           return (

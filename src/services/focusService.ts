@@ -315,7 +315,7 @@ export function createFocusService(
         }
         if (!sleep.weekendSession) {
           throw new ValidationError(
-            `Đang trong Sleep Mode (${FocusScheduler.SLEEP_START} - ${FocusScheduler.SLEEP_END}) - chỉ cho phép break vào phiên tối Thứ 7 hoặc Chủ Nhật.`
+            `Đang trong Sleep Mode (${FocusScheduler.SLEEP_START} - ${FocusScheduler.SLEEP_END}) - chỉ cho phép break vào phiên tối Thứ 6, Thứ 7 hoặc Chủ Nhật.`
           );
         }
         if (sleep.breakUsed) {
