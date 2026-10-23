@@ -51,7 +51,7 @@ export interface FocusServiceApi {
   breakUsageRemainingToday(): { breaksRemaining: number; totalMsRemaining: number };
   recordSleepAcceptedTasks(acceptedAtValues: readonly string[]): SleepUnlockStatus;
   /** /focus schedule skip [scheduleId] - bỏ qua occurrence của schedule HÔM NAY */
-  skipToday(scheduleId?: string): Promise<FocusSchedule>;
+  skipToday(scheduleId?: string, now?: Date): Promise<FocusSchedule>;
   listSchedules(): FocusSchedule[];
   addRecurringSchedule(daysOfWeek: number[], startTime: string, endTime: string): FocusSchedule;
   enableRecurring(scheduleId: string): void;
@@ -384,17 +384,16 @@ export function createFocusService(
       return scheduler.recordSleepAcceptedTasks(acceptedAtValues);
     },
 
-    async skipToday(scheduleId?: string): Promise<FocusSchedule> {
-      const now = new Date();
+    async skipToday(scheduleId?: string, now = new Date()): Promise<FocusSchedule> {
       const dow = now.getDay(); // 0 = Chủ nhật, 6 = Thứ bảy
-      // if (dow !== 0 && dow !== 6) {
-      //   throw new ValidationError(
-      //     "/focus schedule skip chỉ dùng được vào Thứ 7/Chủ Nhật - không dùng được các ngày trong tuần (Thứ 2 - Thứ 6)."
-      //   );
-      // }
+      if (dow !== 0 && dow !== 6) {
+        throw new ValidationError(
+          "/focus schedule skip chỉ dùng được vào Thứ 7/Chủ Nhật - không dùng được các ngày trong tuần (Thứ 2 - Thứ 6)."
+        );
+      }
 
-      const wasActive = scheduler.isWithinScheduleWindowToday();
-      const skipped = scheduler.skipToday(scheduleId);
+      const wasActive = scheduler.isWithinScheduleWindowToday(now);
+      const skipped = scheduler.skipToday(scheduleId, now);
       if (!skipped) {
         throw new ValidationError(
           "Không tìm thấy schedule nào khớp hôm nay để skip. Dùng /focus schedule list để xem danh sách."
