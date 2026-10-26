@@ -131,8 +131,8 @@ test("focus off in sleep mode enforces 3 new AC tasks unless previously unlocked
       eligible: false,
       unlockedByEarlierFocusOff: false,
       disabled: false,
-      weekendSession: false,
-      breakUsed: false,
+      weekendSession: true,
+      breakUsed: true,
       breakActive: false,
       breakRemainingMs: 0,
     },
@@ -226,8 +226,8 @@ test("focus off in daytime enforces 7 daily AC tasks", async () => {
       eligible: false,
       unlockedByEarlierFocusOff: false,
       disabled: false,
-      weekendSession: false,
-      breakUsed: false,
+      weekendSession: true,
+      breakUsed: true,
       breakActive: false,
       breakRemainingMs: 0,
     },
@@ -305,8 +305,8 @@ test("focus off passes false to disable when codeforces task service is absent",
       eligible: false,
       unlockedByEarlierFocusOff: false,
       disabled: false,
-      weekendSession: false,
-      breakUsed: false,
+      weekendSession: true,
+      breakUsed: true,
       breakActive: false,
       breakRemainingMs: 0,
     },
@@ -329,7 +329,7 @@ test("focus off passes false to disable when codeforces task service is absent",
   assert.equal(reply, "🎯 Focus mode đã TẮT.");
 });
 
-test("focus off in weekend sleep session (Friday - Sunday) allows 1-hour break without AC tasks", async () => {
+test("focus off in any sleep session allows 1-hour break without AC tasks", async () => {
   let breakFocusCalls = 0;
   let breakMsArg: number | undefined;
   let disableCalls = 0;
@@ -349,7 +349,7 @@ test("focus off in weekend sleep session (Friday - Sunday) allows 1-hour break w
       eligible: false,
       unlockedByEarlierFocusOff: false,
       disabled: false,
-      weekendSession: true, // Friday, Saturday, or Sunday session
+      weekendSession: true,
       breakUsed: false,
       breakActive: false,
       breakRemainingMs: 0,
@@ -398,7 +398,7 @@ test("focus off in weekend sleep session (Friday - Sunday) allows 1-hour break w
   assert.equal(disableCalls, 0);
   assert.equal(
     reply1,
-    "🌙 Đã bắt đầu tắt Focus 1 giờ (Sleep break). Đây là lượt duy nhất của phiên Sleep cuối tuần này (Thứ 6 - CN)."
+    "🌙 Đã bắt đầu tắt Focus 1 giờ (Sleep break). Đây là lượt duy nhất của phiên Sleep này."
   );
 
   // Reset breakUsed for next test
@@ -414,7 +414,7 @@ test("focus off in weekend sleep session (Friday - Sunday) allows 1-hour break w
   assert.equal(disableCalls, 0);
   assert.equal(
     reply2,
-    "🌙 Đã bắt đầu tắt Focus 1 giờ (Sleep break). Đây là lượt duy nhất của phiên Sleep cuối tuần này (Thứ 6 - CN)."
+    "🌙 Đã bắt đầu tắt Focus 1 giờ (Sleep break). Đây là lượt duy nhất của phiên Sleep này."
   );
 
   // Case 3: Once break is used, /focus off cannot use break again, requires 3 tasks

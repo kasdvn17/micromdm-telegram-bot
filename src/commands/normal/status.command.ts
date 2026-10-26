@@ -63,7 +63,7 @@ export async function buildDashboardReply(
                 { text: "🔄 Refresh", callback_data: "dash:refresh" },
                 {
                   text:
-                    focus.sleepUnlock.withinTimeRange && focus.sleepUnlock.weekendSession
+                    focus.sleepUnlock.withinTimeRange
                       ? focus.sleepUnlock.breakUsed
                         ? "🌙 Sleep break đã dùng"
                         : "🌙 Sleep break 1h"

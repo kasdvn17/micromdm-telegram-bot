@@ -63,21 +63,18 @@ test("an earlier focus off unlocks sleep mode without three new AC tasks", () =>
   }
 });
 
-test("weekend sleep break lasts one hour and is available once per sleep session", () => {
-  const dir = mkdtempSync(path.join(tmpdir(), "micromdm-weekend-sleep-break-"));
+test("sleep break lasts one hour and is available once per sleep session on all days", () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "micromdm-sleep-break-"));
   const file = path.join(dir, "schedule.json");
   try {
     const scheduler = new FocusScheduler(file, async () => {}, async () => {}, async () => {}, async () => {});
     const fridayNight = new Date(2026, 8, 4, 22, 30);
-    assert.equal(fridayNight.getDay(), 5);
     assert.equal(scheduler.getSleepUnlockStatus(fridayNight).weekendSession, true);
 
     const thursdayNight = new Date(2026, 8, 3, 22, 30);
-    assert.equal(thursdayNight.getDay(), 4);
-    assert.equal(scheduler.getSleepUnlockStatus(thursdayNight).weekendSession, false);
+    assert.equal(scheduler.getSleepUnlockStatus(thursdayNight).weekendSession, true);
 
     const saturdayNight = new Date(2026, 8, 5, 22, 30);
-    assert.equal(saturdayNight.getDay(), 6);
     assert.equal(scheduler.getSleepUnlockStatus(saturdayNight).weekendSession, true);
     assert.equal(scheduler.startWeekendSleepBreak(saturdayNight), true);
 
@@ -97,8 +94,12 @@ test("weekend sleep break lasts one hour and is available once per sleep session
     assert.equal(persisted.startWeekendSleepBreak(afterMidnight), false);
 
     const mondayNight = new Date(2026, 8, 7, 22, 30);
-    assert.equal(persisted.getSleepUnlockStatus(mondayNight).weekendSession, false);
-    assert.equal(persisted.startWeekendSleepBreak(mondayNight), false);
+    assert.equal(persisted.getSleepUnlockStatus(mondayNight).weekendSession, true);
+    assert.equal(persisted.startWeekendSleepBreak(mondayNight), true);
+
+    const daytime = new Date(2026, 8, 8, 14, 0);
+    assert.equal(persisted.getSleepUnlockStatus(daytime).withinTimeRange, false);
+    assert.equal(persisted.startWeekendSleepBreak(daytime), false);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

@@ -73,11 +73,10 @@ export function attachMenuInteraction(
         }
         if (action === "break") {
           const status = focusService.status();
-          const weekendSleep =
+          const inSleepSession =
             status.sleepUnlock.withinTimeRange &&
-            !status.sleepUnlock.disabled &&
-            status.sleepUnlock.weekendSession;
-          if (weekendSleep) {
+            !status.sleepUnlock.disabled;
+          if (inSleepSession) {
             await focusService.breakFocus(60 * 60 * 1000);
           } else {
             taskService.assertBreakAllowed(query.from.id);

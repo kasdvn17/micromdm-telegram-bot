@@ -221,12 +221,9 @@ export class FocusScheduler {
     return this.isWithinSleepTimeRange(now) && !status.disabled && !status.breakActive;
   }
 
-  /** Cuối tuần được tính theo ngày phiên Sleep BẮT ĐẦU lúc 22:00 (Thứ 6, Thứ 7, Chủ Nhật). */
+  /** Cho phép break 1 giờ trong tất cả các phiên Sleep (mọi ngày trong tuần). */
   isWeekendSleepSession(now: Date = new Date()): boolean {
-    if (!this.isWithinSleepTimeRange(now)) return false;
-    const [year, month, day] = sleepSessionDateStr(now).split("-").map(Number);
-    const dow = new Date(year, month - 1, day).getDay();
-    return dow === 5 || dow === 6 || dow === 0;
+    return this.isWithinSleepTimeRange(now);
   }
 
   getSleepUnlockStatus(now: Date = new Date()): SleepUnlockStatus {
@@ -273,9 +270,9 @@ export class FocusScheduler {
     };
   }
 
-  /** Bắt đầu lượt Sleep break cuối tuần duy nhất của phiên hiện tại. */
+  /** Bắt đầu lượt Sleep break 1 giờ duy nhất của phiên hiện tại. */
   startWeekendSleepBreak(now: Date = new Date()): boolean {
-    if (!this.isWithinSleepTimeRange(now) || !this.isWeekendSleepSession(now)) return false;
+    if (!this.isWithinSleepTimeRange(now)) return false;
     const state = this.ensureSleepSession(now);
     if (state.sleepUnlock?.disabledAt || state.sleepUnlock?.breakUsedAt) return false;
     state.sleepUnlock!.breakUsedAt = now.toISOString();

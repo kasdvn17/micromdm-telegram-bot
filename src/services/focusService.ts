@@ -313,18 +313,13 @@ export function createFocusService(
         if (sleep.disabled) {
           throw new ValidationError("Sleep Mode đã được tắt cho phiên hiện tại.");
         }
-        if (!sleep.weekendSession) {
-          throw new ValidationError(
-            `Đang trong Sleep Mode (${FocusScheduler.SLEEP_START} - ${FocusScheduler.SLEEP_END}) - chỉ cho phép break vào phiên tối Thứ 6, Thứ 7 hoặc Chủ Nhật.`
-          );
-        }
         if (sleep.breakUsed) {
           throw new ValidationError(
-            "Đã dùng lượt Sleep break 1 giờ duy nhất của phiên cuối tuần này."
+            "Đã dùng lượt Sleep break 1 giờ duy nhất của phiên này."
           );
         }
         if (ms !== FocusScheduler.WEEKEND_SLEEP_BREAK_MS) {
-          throw new ValidationError("Sleep break cuối tuần chỉ có thời lượng cố định 1 giờ.");
+          throw new ValidationError("Sleep break chỉ có thời lượng cố định 1 giờ.");
         }
         if (!scheduler.startWeekendSleepBreak()) {
           throw new ValidationError("Không thể bắt đầu Sleep break cho phiên hiện tại.");
