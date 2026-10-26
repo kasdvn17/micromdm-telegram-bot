@@ -37,18 +37,19 @@ export function createFocusCommand(
         case "off":
           {
             const status = focusService.status();
-            const weekendSleep =
+            const inSleepMode =
               status.sleepUnlock.withinTimeRange &&
-              !status.sleepUnlock.disabled &&
-              status.sleepUnlock.weekendSession;
+              !status.sleepUnlock.disabled;
+            const weekendSleep = status.sleepUnlock.withinTimeRange &&
+              !status.sleepUnlock.disabled && status.sleepUnlock.weekendSession;
 
-            // Nếu người dùng chỉ định duration (vd: /focus off 1h), trong phiên Sleep cuối tuần
-            // (Thứ 6 => CN) sẽ kích hoạt lượt tắt Focus 1 giờ (Sleep break).
+            // Nếu người dùng chỉ định duration (vd: /focus off 1h), trong phiên Sleep
+            // (sẽ kích hoạt lượt tắt Focus 1 giờ (Sleep break).
             const durationArg = rest[0];
-            if (weekendSleep && durationArg) {
-              const ms = parseDurationToMs(durationArg);
+            if (inSleepMode && durationArg) {
+              const ms = parseDurationToMs("60m");
               await focusService.breakFocus(ms);
-              return "🌙 Đã bắt đầu tắt Focus 1 giờ (Sleep break). Đây là lượt duy nhất của phiên Sleep cuối tuần này (Thứ 6 - CN).";
+              return "🌙 Đã bắt đầu tắt Focus 1 giờ (Sleep break). Đây là lượt duy nhất của phiên Sleep này.";
             }
 
             // Backward compatibility: các bản cũ chưa ghi lastFocusOff vào JSON.
