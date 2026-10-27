@@ -435,3 +435,19 @@ test("focus off in any sleep session allows 1-hour break without AC tasks", asyn
   assert.equal(disableCalls, 1);
   assert.equal(reply4, "🌙 Sleep Mode đã tắt cho phần còn lại của phiên hôm nay.");
 });
+
+test("focus blwremove is disabled and throws ValidationError", async () => {
+  const focusService = {} as unknown as FocusServiceApi;
+  const command = createFocusCommand(focusService);
+
+  await assert.rejects(
+    async () => {
+      await command.handler(makeContext("blwremove", ["youtube.com"]));
+    },
+    (err: unknown) => {
+      assert(err instanceof ValidationError);
+      assert.equal((err as Error).message, "Lệnh /focus blwremove đã bị vô hiệu hóa.");
+      return true;
+    }
+  );
+});

@@ -45,7 +45,6 @@ Bot chỉ nhận command trong private chat. Message chứa Emergency password �
 /focus blockadd <bundleId>
 /focus blocklist
 /focus blwadd <website>
-/focus blwremove <website>
 /focus blwlist
 
 /task add <problem>
