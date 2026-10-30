@@ -199,17 +199,69 @@ export class CodeforcesClient {
   /** Lấy trang submission mới nhất để refresh tăng dần, tránh quét toàn bộ lịch sử mỗi lần. */
   async fetchRecentUserSubmissions(
     handle: string,
-    count = DEFAULT_PAGE_SIZE
+    count = DEFAULT_PAGE_SIZE,
+    sinceSeconds?: number
   ): Promise<CodeforcesSubmission[]> {
     const normalizedHandle = validateHandle(handle);
     if (!Number.isInteger(count) || count <= 0 || count > 10_000) {
       throw new ValidationError("Codeforces submission count phải trong khoảng 1..10000.");
     }
-    return this.request<CodeforcesSubmission[]>("user.status", {
+    const submissions = await this.request<CodeforcesSubmission[]>("user.status", {
       handle: normalizedHandle,
       from: "1",
       count: String(count),
     });
+    if (sinceSeconds === undefined) return submissions;
+    const filtered: CodeforcesSubmission[] = [];
+    for (const sub of submissions) {
+      if (sub.creationTimeSeconds < sinceSeconds) break;
+      filtered.push(sub);
+    }
+    return filtered;
+  }
+
+  /**
+   * Lấy các submission mới nhất kể từ một mốc thời gian (epoch seconds).
+   * Dừng phân trang ngay khi gặp submission cũ hơn mốc để tránh spam request / overload Codeforces.
+   */
+  async fetchUserSubmissionsSince(
+    handle: string,
+    sinceSeconds: number,
+    options: { pageSize?: number; maxCount?: number } = {}
+  ): Promise<CodeforcesSubmission[]> {
+    const normalizedHandle = validateHandle(handle);
+    const pageSize = options.pageSize ?? this.pageSize;
+    const maxCount = options.maxCount ?? 1000;
+    const submissions: CodeforcesSubmission[] = [];
+    const seenIds = new Set<number>();
+    let from = 1;
+
+    while (submissions.length < maxCount) {
+      const page = await this.request<CodeforcesSubmission[]>("user.status", {
+        handle: normalizedHandle,
+        from: String(from),
+        count: String(pageSize),
+      });
+
+      if (!page.length) break;
+
+      let reachedOldSubmissions = false;
+      for (const submission of page) {
+        if (submission.creationTimeSeconds < sinceSeconds) {
+          reachedOldSubmissions = true;
+          break;
+        }
+        if (!seenIds.has(submission.id)) {
+          seenIds.add(submission.id);
+          submissions.push(submission);
+        }
+      }
+
+      if (reachedOldSubmissions || page.length < pageSize) break;
+      from += page.length;
+    }
+
+    return submissions;
   }
 
   /** Lấy danh sách bài hiện có trong problemset public của Codeforces. */
@@ -488,6 +540,22 @@ const defaultClient = new CodeforcesClient();
 
 export function fetchAllUserSubmissions(handle: string): Promise<CodeforcesSubmission[]> {
   return defaultClient.fetchAllUserSubmissions(handle);
+}
+
+export function fetchRecentUserSubmissions(
+  handle: string,
+  count?: number,
+  sinceSeconds?: number
+): Promise<CodeforcesSubmission[]> {
+  return defaultClient.fetchRecentUserSubmissions(handle, count, sinceSeconds);
+}
+
+export function fetchUserSubmissionsSince(
+  handle: string,
+  sinceSeconds: number,
+  options?: { pageSize?: number; maxCount?: number }
+): Promise<CodeforcesSubmission[]> {
+  return defaultClient.fetchUserSubmissionsSince(handle, sinceSeconds, options);
 }
 
 export function fetchPublicCodeforcesProblems(forceRefresh = false): Promise<CodeforcesProblem[]> {

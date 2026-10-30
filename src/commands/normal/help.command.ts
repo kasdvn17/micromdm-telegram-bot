@@ -51,7 +51,7 @@ Quy ước: lệnh Emergency/Two-Factor đặt password ngay sau tên lệnh:
 /task archive auto on|off|status
 /task undo — hoàn tác thay đổi task gần nhất
 /task status — tiến độ task, break và Focus off
-/refresh [full] — incremental mặc định, full để quét lại toàn bộ
+/refresh [full|<thời gian>] — đồng bộ submission mới nhất (tự động add & AC bài >=1600), hoặc full để quét lại toàn bộ
 /status — dashboard Focus, task, gate, break và thiết bị
 /menu — dashboard có nút bấm
 

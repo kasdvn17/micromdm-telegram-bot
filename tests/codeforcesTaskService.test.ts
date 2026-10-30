@@ -15,6 +15,7 @@ import {
   buildTaskListReply,
   buildTaskTagPickerReply,
 } from "../src/telegram/taskTagInteraction";
+import { createRefreshCommand } from "../src/commands/normal/task.command";
 
 test("bulk tag prompt offers yes and no only when tasks were added", () => {
   const reply = buildBulkTagPrompt("📦 Done", 42, [
@@ -481,13 +482,13 @@ test("refresh stores earliest AC then switches to incremental submission sync", 
       now: () => new Date("2026-09-02T04:00:00.000Z"),
       timeZone: "UTC",
     });
-    const first = await service.refresh(42);
+    const first = await service.refresh(42, { full: true });
     assert.equal(first.syncMode, "full");
     assert.equal(first.tasks[0].solvedAt, "1970-01-01T00:01:40.000Z");
     assert.equal(first.tasks[0].prioritizedAt, undefined);
     const second = await service.refresh(42);
     assert.equal(second.syncMode, "incremental");
-    assert.deepEqual(userStatusCounts, ["100", "1000"]);
+    assert.deepEqual(userStatusCounts, ["100", "100"]);
   } finally {
     data.cleanup();
   }
@@ -556,4 +557,265 @@ test("tag registry supports empty tags, editor states and global removal", () =>
   } finally {
     data.cleanup();
   }
+});
+
+test("refresh automatically adds eligible problems (>=1600 AC) and skips low-rated or WA ones", async () => {
+  const data = fixture({ users: { "42": { tasks: [] } } });
+  const fixedNow = new Date("2026-10-30T12:00:00.000Z");
+  const fixedNowSeconds = Math.floor(fixedNow.getTime() / 1000);
+
+  const client = new CodeforcesClient({
+    minRequestIntervalMs: 0,
+    fetchImpl: async (url) => {
+      if (url.includes("problemset.problems")) {
+        return new Response(JSON.stringify({
+          status: "OK",
+          result: {
+            problems: [
+              { contestId: 6000, index: "A", name: "Eligible High", type: "PROGRAMMING", rating: 1700, tags: ["greedy"] },
+              { contestId: 6000, index: "B", name: "Low Rated", type: "PROGRAMMING", rating: 1400, tags: ["math"] },
+              { contestId: 6000, index: "C", name: "Not Accepted", type: "PROGRAMMING", rating: 1800, tags: ["dp"] },
+            ],
+            problemStatistics: [],
+          },
+        }), { status: 200 });
+      }
+      if (url.includes("contests.json")) {
+        return new Response(JSON.stringify([]), { status: 200 });
+      }
+      if (url.includes("user.status")) {
+        return new Response(JSON.stringify({
+          status: "OK",
+          result: [
+            // 6000A AC 10 phút trước
+            {
+              id: 101,
+              contestId: 6000,
+              creationTimeSeconds: fixedNowSeconds - 600,
+              relativeTimeSeconds: 0,
+              problem: { contestId: 6000, index: "A", name: "Eligible High", type: "PROGRAMMING", rating: 1700, tags: ["greedy"] },
+              author: { members: [{ handle: "tourist" }], participantType: "PRACTICE", ghost: false },
+              programmingLanguage: "C++",
+              verdict: "OK",
+              testset: "TESTS",
+              passedTestCount: 1,
+              timeConsumedMillis: 1,
+              memoryConsumedBytes: 1,
+            },
+            // 6000B AC 15 phút trước nhưng rating < 1600
+            {
+              id: 102,
+              contestId: 6000,
+              creationTimeSeconds: fixedNowSeconds - 900,
+              relativeTimeSeconds: 0,
+              problem: { contestId: 6000, index: "B", name: "Low Rated", type: "PROGRAMMING", rating: 1400, tags: ["math"] },
+              author: { members: [{ handle: "tourist" }], participantType: "PRACTICE", ghost: false },
+              programmingLanguage: "C++",
+              verdict: "OK",
+              testset: "TESTS",
+              passedTestCount: 1,
+              timeConsumedMillis: 1,
+              memoryConsumedBytes: 1,
+            },
+            // 6000C WA 20 phút trước
+            {
+              id: 103,
+              contestId: 6000,
+              creationTimeSeconds: fixedNowSeconds - 1200,
+              relativeTimeSeconds: 0,
+              problem: { contestId: 6000, index: "C", name: "Not Accepted", type: "PROGRAMMING", rating: 1800, tags: ["dp"] },
+              author: { members: [{ handle: "tourist" }], participantType: "PRACTICE", ghost: false },
+              programmingLanguage: "C++",
+              verdict: "WRONG_ANSWER",
+              testset: "TESTS",
+              passedTestCount: 0,
+              timeConsumedMillis: 1,
+              memoryConsumedBytes: 1,
+            },
+            // 6000A duplicate submission
+            {
+              id: 104,
+              contestId: 6000,
+              creationTimeSeconds: fixedNowSeconds - 300,
+              relativeTimeSeconds: 0,
+              problem: { contestId: 6000, index: "A", name: "Eligible High", type: "PROGRAMMING", rating: 1700, tags: ["greedy"] },
+              author: { members: [{ handle: "tourist" }], participantType: "PRACTICE", ghost: false },
+              programmingLanguage: "C++",
+              verdict: "OK",
+              testset: "TESTS",
+              passedTestCount: 1,
+              timeConsumedMillis: 1,
+              memoryConsumedBytes: 1,
+            },
+          ],
+        }), { status: 200 });
+      }
+      throw new Error(`Unexpected URL: ${url}`);
+    },
+  });
+
+  try {
+    const service = createCodeforcesTaskService(data.filePath, "tourist", client, {
+      now: () => fixedNow,
+      timeZone: "UTC",
+    });
+
+    // Lúc này chưa có task nào trong danh sách
+    assert.equal(service.listTasks(42).length, 0);
+
+    // Refresh tự động fetch và add bài đủ điều kiện
+    const result = await service.refresh(42);
+
+    // 6000A tự động được add và AC
+    assert.equal(result.autoAdded.length, 1);
+    assert.equal(result.autoAdded[0].contestId, 6000);
+    assert.equal(result.autoAdded[0].index, "A");
+    assert.equal(result.autoAdded[0].rating, 1700);
+
+    // 6000B bị bỏ qua do rating < 1600
+    assert.deepEqual(result.skippedLowRating, [{ problemId: "6000B", rating: 1400 }]);
+
+    // Task list đã có 6000A với status = solved
+    const tasks = service.listTasks(42);
+    assert.equal(tasks.length, 1);
+    assert.equal(tasks[0].status, "solved");
+    assert.equal(tasks[0].contestId, 6000);
+    assert.equal(tasks[0].index, "A");
+
+    // Gate ghi nhận AC
+    const gate = service.getDailyGateStatus(42);
+    assert.equal(gate.acceptedSinceLastBreak, 1);
+    assert.equal(gate.breakAllowed, true);
+
+    // Command output hiển thị đúng khi chạy lần đầu cho user 43
+    const fakeFocus = {
+      status: () => ({
+        sleepUnlock: { withinTimeRange: false, disabled: false, unlockedByEarlierFocusOff: false },
+      }),
+    };
+    const cmd = createRefreshCommand(service, fakeFocus as any);
+    const reply = await cmd.handler({
+      message: { telegramId: 43, role: "normal" } as any,
+      effectiveArgs: [],
+      rawArgs: [],
+      args: [],
+      command: "refresh",
+      isOwner: false,
+      isEmergency: false,
+      progress: async () => {},
+    });
+
+    assert.match(reply, /Tự động thêm/);
+    assert.match(reply, /6000A/);
+    assert.match(reply, /Bỏ qua 1 bài AC không đủ rating >= 1600/);
+    assert.match(reply, /6000B/);
+  } finally {
+    data.cleanup();
+  }
+});
+
+test("refresh command validates arguments and supports duration syntax", async () => {
+  const data = fixture({ users: { "42": { tasks: [] } } });
+  let lastRefreshOptions: any = null;
+  const fakeService = {
+    refresh: async (_telegramId: number, options?: any) => {
+      lastRefreshOptions = options;
+      return {
+        tasks: [],
+        newlySolved: [],
+        autoAdded: [],
+        unavailablePublicProblems: [],
+        ratingsUpdated: 0,
+        codeforcesTagsUpdated: 0,
+        syncMode: options?.full ? "full" : "incremental",
+      };
+    },
+    getDailyGateStatus: () => ({
+      date: "2026-10-30",
+      focusOffAcceptedCount: 0,
+      acceptedSinceLastBreak: 0,
+      breakRequiredCount: 1,
+      focusOffRequiredCount: 7,
+      breakAllowed: false,
+      focusOffAllowed: false,
+    }),
+  };
+  const fakeFocus = {
+    status: () => ({
+      sleepUnlock: { withinTimeRange: false, disabled: false, unlockedByEarlierFocusOff: false },
+    }),
+  };
+  const cmd = createRefreshCommand(fakeService as any, fakeFocus as any);
+
+  // /refresh mặc định
+  await cmd.handler({
+    message: { telegramId: 42, role: "normal" } as any,
+    effectiveArgs: [],
+    rawArgs: [],
+    args: [],
+    command: "refresh",
+    isOwner: false,
+    isEmergency: false,
+    progress: async () => {},
+  });
+  assert.equal(lastRefreshOptions.full, false);
+  assert.equal(lastRefreshOptions.since, undefined);
+
+  // /refresh full
+  await cmd.handler({
+    message: { telegramId: 42, role: "normal" } as any,
+    effectiveArgs: ["full"],
+    rawArgs: ["full"],
+    args: ["full"],
+    command: "refresh",
+    isOwner: false,
+    isEmergency: false,
+    progress: async () => {},
+  });
+  assert.equal(lastRefreshOptions.full, true);
+
+  // /refresh 12h
+  await cmd.handler({
+    message: { telegramId: 42, role: "normal" } as any,
+    effectiveArgs: ["12h"],
+    rawArgs: ["12h"],
+    args: ["12h"],
+    command: "refresh",
+    isOwner: false,
+    isEmergency: false,
+    progress: async () => {},
+  });
+  assert.equal(lastRefreshOptions.full, false);
+  assert.ok(lastRefreshOptions.since instanceof Date);
+
+  // /refresh 2d
+  await cmd.handler({
+    message: { telegramId: 42, role: "normal" } as any,
+    effectiveArgs: ["2d"],
+    rawArgs: ["2d"],
+    args: ["2d"],
+    command: "refresh",
+    isOwner: false,
+    isEmergency: false,
+    progress: async () => {},
+  });
+  assert.equal(lastRefreshOptions.full, false);
+  assert.ok(lastRefreshOptions.since instanceof Date);
+
+  // Invalid args
+  await assert.rejects(
+    () =>
+      cmd.handler({
+        message: { telegramId: 42, role: "normal" } as any,
+        effectiveArgs: ["invalid"],
+        rawArgs: ["invalid"],
+        args: ["invalid"],
+        command: "refresh",
+        isOwner: false,
+        isEmergency: false,
+        progress: async () => {},
+      }),
+    /Cú pháp: \/refresh/
+  );
+  data.cleanup();
 });

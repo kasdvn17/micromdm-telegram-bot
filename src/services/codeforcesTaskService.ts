@@ -57,6 +57,7 @@ interface UserTaskState {
   };
   submissionSync?: {
     lastFullSyncAt: string;
+    lastSyncAt?: string;
     newestSubmissionId?: number;
     /** problemKey -> epoch seconds của submission OK đầu tiên. */
     firstAcceptedAt: Record<string, number>;
@@ -74,13 +75,21 @@ interface CodeforcesTaskState {
   users: Record<string, UserTaskState>;
 }
 
+export interface RefreshOptions {
+  full?: boolean;
+  since?: Date | string | number;
+}
+
 export interface RefreshResult {
   tasks: CodeforcesTask[];
   newlySolved: CodeforcesTask[];
+  autoAdded: CodeforcesTask[];
+  skippedLowRating?: Array<{ problemId: string; rating?: number }>;
   unavailablePublicProblems: CodeforcesTask[];
   ratingsUpdated: number;
   codeforcesTagsUpdated: number;
   syncMode: "full" | "incremental";
+  sinceIso?: string;
 }
 
 export interface TaskStats {
@@ -142,7 +151,7 @@ export interface CodeforcesTaskServiceApi {
   getStats(telegramId: number): TaskStats;
   undoLastTaskChange(telegramId: number): string;
   refreshRatings(telegramId: number): Promise<number>;
-  refresh(telegramId: number, options?: { full?: boolean }): Promise<RefreshResult>;
+  refresh(telegramId: number, options?: RefreshOptions): Promise<RefreshResult>;
   getDailyGateStatus(
     telegramId: number,
     focusOffOptions?: FocusOffGateOptions
@@ -156,7 +165,6 @@ export interface CodeforcesTaskServiceApi {
 const BREAK_REQUIRED_NEW_AC = 1;
 const FOCUS_OFF_REQUIRED_DAILY_AC = 7;
 const MIN_TASK_RATING_INCLUSIVE = 1600;
-const FULL_SUBMISSION_SYNC_INTERVAL_MS = 24 * 60 * 60 * 1000;
 
 function localDateStr(date: Date, timeZone: string): string {
   const parts = new Intl.DateTimeFormat("en-US", {
@@ -911,7 +919,7 @@ export function createCodeforcesTaskService(
       return updated.ratingsUpdated;
     },
 
-    async refresh(telegramId: number, refreshOptions = {}): Promise<RefreshResult> {
+    async refresh(telegramId: number, refreshOptions: RefreshOptions = {}): Promise<RefreshResult> {
       const currentState = readState();
       const currentTasks = getTasks(currentState, telegramId);
       const codeforcesHandle = requireHandle();
@@ -919,47 +927,155 @@ export function createCodeforcesTaskService(
         currentState.users[String(telegramId)] = { tasks: currentTasks };
       }
       const userState = currentState.users[String(telegramId)];
-      const lastFullSyncMs = userState.submissionSync
-        ? new Date(userState.submissionSync.lastFullSyncAt).getTime()
-        : Number.NaN;
-      const full =
-        !!refreshOptions.full ||
-        !userState.submissionSync ||
-        !Number.isFinite(lastFullSyncMs) ||
-        now().getTime() - lastFullSyncMs >= FULL_SUBMISSION_SYNC_INTERVAL_MS;
+      const full = !!refreshOptions.full;
+
+      let sinceSeconds: number | undefined;
+      let sinceIso: string | undefined;
+
+      if (!full) {
+        if (refreshOptions.since !== undefined) {
+          const sinceDate =
+            refreshOptions.since instanceof Date
+              ? refreshOptions.since
+              : typeof refreshOptions.since === "number"
+                ? new Date(
+                    refreshOptions.since > 1e11
+                      ? refreshOptions.since
+                      : refreshOptions.since * 1000
+                  )
+                : new Date(refreshOptions.since);
+          if (Number.isNaN(sinceDate.getTime())) {
+            throw new ValidationError(
+              `Mốc thời gian không hợp lệ: "${String(refreshOptions.since)}".`
+            );
+          }
+          sinceSeconds = Math.floor(sinceDate.getTime() / 1000);
+          sinceIso = sinceDate.toISOString();
+        } else if (userState.submissionSync?.lastSyncAt) {
+          const lastSyncMs = new Date(userState.submissionSync.lastSyncAt).getTime();
+          if (Number.isFinite(lastSyncMs)) {
+            // Buffer 15 phút tránh miss submission do clock skew hoặc Codeforces indexing lag
+            const bufferedMs = lastSyncMs - 15 * 60 * 1000;
+            sinceSeconds = Math.floor(bufferedMs / 1000);
+            sinceIso = new Date(bufferedMs).toISOString();
+          }
+        }
+
+        if (sinceSeconds === undefined) {
+          // Mặc định: 24 giờ trước thời điểm hiện tại
+          const fallback24hMs = now().getTime() - 24 * 60 * 60 * 1000;
+          sinceSeconds = Math.floor(fallback24hMs / 1000);
+          sinceIso = new Date(fallback24hMs).toISOString();
+        }
+      }
+
       const [submissions, publicProblems] = await Promise.all([
         full
           ? client.fetchAllUserSubmissions(codeforcesHandle)
-          : client.fetchRecentUserSubmissions(codeforcesHandle),
+          : typeof client.fetchUserSubmissionsSince === "function"
+            ? client.fetchUserSubmissionsSince(codeforcesHandle, sinceSeconds!)
+            : client.fetchRecentUserSubmissions(codeforcesHandle, undefined, sinceSeconds!),
         client.fetchResolvableProblems(),
       ]);
+
       const { ratingsUpdated, codeforcesTagsUpdated } = await updateMetadata(
         currentTasks,
         publicProblems
       );
+
       const firstAcceptedAt = full
         ? ({} as Record<string, number>)
         : { ...(userState.submissionSync?.firstAcceptedAt ?? {}) };
+
       for (const submission of submissions as readonly CodeforcesSubmission[]) {
         if (submission.verdict !== "OK") continue;
         const contestId = submission.problem.contestId ?? submission.contestId;
-        if (!contestId) continue;
+        if (!contestId || !submission.problem.index) continue;
         const key = problemKey(contestId, submission.problem.index);
         const previous = firstAcceptedAt[key];
         if (!Number.isFinite(previous) || submission.creationTimeSeconds < previous) {
           firstAcceptedAt[key] = submission.creationTimeSeconds;
         }
       }
+
+      const existingKeys = new Set(
+        currentTasks.map((task) => problemKey(task.contestId, task.index))
+      );
+      const publicProblemMap = new Map(
+        publicProblems
+          .filter((problem) => problem.contestId)
+          .map((problem) => [problemKey(problem.contestId!, problem.index), problem] as const)
+      );
+
+      const autoAdded: CodeforcesTask[] = [];
+      const skippedLowRating: Array<{ problemId: string; rating?: number }> = [];
+
+      // Sắp xếp submission OK từ cũ đến mới để xử lý đúng thứ tự
+      const okSubmissions = (submissions as readonly CodeforcesSubmission[])
+        .filter((sub) => sub.verdict === "OK")
+        .sort((a, b) => a.creationTimeSeconds - b.creationTimeSeconds);
+
+      for (const submission of okSubmissions) {
+        const contestId = submission.problem.contestId ?? submission.contestId;
+        if (!contestId || !submission.problem.index) continue;
+        const key = problemKey(contestId, submission.problem.index);
+        const problemId = `${contestId}${submission.problem.index.toUpperCase()}`;
+
+        if (existingKeys.has(key)) {
+          continue;
+        }
+
+        const publicProblem = publicProblemMap.get(key);
+        if (!publicProblem) {
+          continue;
+        }
+
+        try {
+          const resolvedRating = await client.getProblemRating(contestId, submission.problem.index);
+          if (
+            !Number.isFinite(resolvedRating.rating) ||
+            resolvedRating.rating! < MIN_TASK_RATING_INCLUSIVE
+          ) {
+            skippedLowRating.push({ problemId, rating: resolvedRating.rating });
+            existingKeys.add(key);
+            continue;
+          }
+
+          const newTask: CodeforcesTask = {
+            contestId,
+            index: submission.problem.index.toUpperCase(),
+            name: publicProblem.name || submission.problem.name,
+            status: "active",
+            addedAt: now().toISOString(),
+            rating: resolvedRating.rating,
+            ratingSource: resolvedRating.source,
+            codeforcesTags: normalizeCodeforcesTags(publicProblem.tags),
+          };
+
+          userState.tasks.push(newTask);
+          autoAdded.push(newTask);
+          existingKeys.add(key);
+        } catch {
+          // Bỏ qua nếu lỗi resolution bài cụ thể
+        }
+      }
+
+      if (autoAdded.length > 0) {
+        captureUndo(userState, `tự động thêm ${autoAdded.length} task đủ điều kiện`);
+      }
+
       userState.submissionSync = {
         lastFullSyncAt: full
           ? now().toISOString()
-          : userState.submissionSync!.lastFullSyncAt,
+          : (userState.submissionSync?.lastFullSyncAt ?? now().toISOString()),
+        lastSyncAt: now().toISOString(),
         newestSubmissionId: submissions.reduce(
           (largest, submission) => Math.max(largest, submission.id),
           userState.submissionSync?.newestSubmissionId ?? 0
         ),
         firstAcceptedAt,
       };
+
       const publicKeys = new Set(
         publicProblems
           .filter((problem) => problem.contestId)
@@ -996,10 +1112,13 @@ export function createCodeforcesTaskService(
       return {
         tasks: [...currentTasks],
         newlySolved: [...newlySolved],
+        autoAdded: [...autoAdded],
+        skippedLowRating: [...skippedLowRating],
         unavailablePublicProblems: [...unavailablePublicProblems],
         ratingsUpdated,
         codeforcesTagsUpdated,
         syncMode: full ? "full" : "incremental",
+        sinceIso,
       };
     },
 

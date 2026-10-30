@@ -417,11 +417,44 @@ export function createRefreshCommand(
     name: "refresh",
     tier: AuthTier.Normal,
     handler: async (ctx: CommandContext): Promise<string> => {
-      const mode = ctx.effectiveArgs[0]?.toLowerCase();
-      if (ctx.effectiveArgs.length > 1 || (mode && mode !== "full")) {
-        throw new ValidationError("Cú pháp: /refresh [full]");
+      const rawArg = ctx.effectiveArgs[0]?.trim();
+      let full = false;
+      let since: Date | undefined;
+
+      if (ctx.effectiveArgs.length > 1) {
+        throw new ValidationError("Cú pháp: /refresh [full|<thời gian: 12h, 1d, 3d>]");
       }
-      const result = await taskService.refresh(ctx.message.telegramId, { full: mode === "full" });
+
+      if (rawArg) {
+        const lower = rawArg.toLowerCase();
+        if (lower === "full") {
+          full = true;
+        } else {
+          const durationMatch = lower.match(/^(\d+)(m|h|d)$/);
+          if (durationMatch) {
+            const val = Number(durationMatch[1]);
+            const unit = durationMatch[2];
+            const ms =
+              unit === "d" ? val * 86400_000 : unit === "h" ? val * 3600_000 : val * 60_000;
+            since = new Date(Date.now() - ms);
+          } else if (/^\d{4}-\d{2}-\d{2}$/.test(lower)) {
+            const date = new Date(lower);
+            if (!Number.isNaN(date.getTime())) {
+              since = date;
+            } else {
+              throw new ValidationError(
+                "Cú pháp: /refresh [full|<thời gian: 12h, 1d, 3d, YYYY-MM-DD>]"
+              );
+            }
+          } else {
+            throw new ValidationError(
+              "Cú pháp: /refresh [full|<thời gian: 12h, 1d, 3d, YYYY-MM-DD>]"
+            );
+          }
+        }
+      }
+
+      const result = await taskService.refresh(ctx.message.telegramId, { full, since });
       const focusStatus = focusService.status();
       const inSleep =
         focusStatus.sleepUnlock.withinTimeRange &&
@@ -439,6 +472,25 @@ export function createRefreshCommand(
               .map((task) => `${task.contestId}${task.index}`)
               .join(", ")}.`
           : "🔄 Không có task AC mới.",
+      ];
+
+      if (result.autoAdded.length > 0) {
+        lines.push(
+          `✨ Tự động thêm ${result.autoAdded.length} task đủ điều kiện: ${result.autoAdded
+            .map((task) => `${task.contestId}${task.index} (${task.rating ?? "Unrated"})`)
+            .join(", ")}.`
+        );
+      }
+
+      if (result.skippedLowRating && result.skippedLowRating.length > 0) {
+        lines.push(
+          `⏭ Bỏ qua ${result.skippedLowRating.length} bài AC không đủ rating >= 1600: ${result.skippedLowRating
+            .map((item) => `${item.problemId} (${item.rating ?? "Unrated"})`)
+            .join(", ")}.`
+        );
+      }
+
+      lines.push(
         `⚙️ Submission sync: ${result.syncMode === "full" ? "full history" : "incremental cache"}.`,
         result.ratingsUpdated > 0
           ? `📊 Đã cập nhật difficulty cho ${result.ratingsUpdated} task.`
@@ -455,7 +507,8 @@ export function createRefreshCommand(
           : `⏳ Còn ${active.length} task chưa AC: ${active
               .map((task) => `${task.contestId}${task.index}`)
               .join(", ")}.`,
-      ];
+      );
+
       if (result.unavailablePublicProblems.length > 0) {
         lines.push(
           `⚠️ Không còn tìm thấy trong problemset public: ${result.unavailablePublicProblems
