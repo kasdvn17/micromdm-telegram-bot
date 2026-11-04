@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.micromdm.laps-agent</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>/usr/local/bin/laps-agent.sh</string>
+    </array>
+    <!-- Kiểm tra và check-in mỗi 2 phút (120 giây) -->
+    <key>StartInterval</key>
+    <integer>120</integer>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>StandardOutPath</key>
+    <string>/var/log/laps-agent.log</string>
+    <key>StandardErrorPath</key>
+    <string>/var/log/laps-agent.log</string>
+</dict>
+</plist>

@@ -164,6 +164,14 @@ Các lệnh:
 /profiles <password>
 /installprofile <password> [filename] # Gửi kèm file .mobileconfig/.plist hoặc file trong data/
 /removeprofile <password> <profileIdentifier>
+
+/laps <password> status # Xem trạng thái LAPS & Agent trên macOS
+/laps <password> pass # Lấy mật khẩu admin hiện tại
+/laps <password> rotate # Ra lệnh xoay mật khẩu ngay lập tức
+/laps <password> demote [user] # Hạ quyền tài khoản xuống Standard User (mặc định blamm01)
+/laps <password> elevate [phút] # Cấp quyền Admin tạm thời trong X phút (mặc định 30p)
+/laps <password> exec <lệnh> # Chạy lệnh shell dưới quyền root từ xa
+/laps <password> cancel # Huỷ lệnh chờ thực thi
 ```
 
 ### Two-Factor

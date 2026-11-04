@@ -72,6 +72,9 @@ export interface AppConstants {
   /** Đường dẫn file lưu hash raw_payload check-in gần nhất theo UDID (lọc heartbeat) */
   checkinStateFilePath: string;
 
+  /** Đường dẫn file lưu trạng thái LAPS (laps-state.json) */
+  lapsStateFilePath: string;
+
   /**
    * Port HTTP server nội bộ lắng nghe webhook từ MicroMDM (--webhook-url trỏ vào đây).
    * MicroMDM gửi mọi sự kiện (Enrollment, CheckIn, Acknowledge/CommandResult, CheckOut)
@@ -161,6 +164,8 @@ export function loadConstants(env: NodeJS.ProcessEnv = process.env): AppConstant
       env.DEFAULT_PROFILE_PLIST_PATH?.trim() || path.join(DATA_DIR, "default.plist"),
     checkinStateFilePath:
       env.CHECKIN_STATE_FILE_PATH?.trim() || path.join(DATA_DIR, "checkin-state.json"),
+    lapsStateFilePath:
+      env.LAPS_STATE_FILE_PATH?.trim() || path.join(DATA_DIR, "laps-state.json"),
     webhookPort: parseIntEnv(env.WEBHOOK_PORT, 6364),
     webhookPath,
     commandResultTimeoutMs: parseIntEnv(env.COMMAND_RESULT_TIMEOUT_MS, 30_000),

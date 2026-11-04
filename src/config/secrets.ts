@@ -36,6 +36,9 @@ export interface Secrets {
 
   /** API key (Basic Auth password, username mặc định là "micromdm") của MicroMDM */
   microMdmApiKey: string;
+
+  /** API key dùng cho macOS LAPS daemon liên lạc với server */
+  lapsApiKey: string;
 }
 
 /**
@@ -101,5 +104,6 @@ export function loadSecrets(env: NodeJS.ProcessEnv = process.env): Secrets {
     emergencyPassword: env.EMERGENCY_PASSWORD!,
     microMdmUrl: env.MICROMDM_URL!.trim().replace(/\/+$/, ""),
     microMdmApiKey: env.MICROMDM_API_KEY!.trim(),
+    lapsApiKey: env.LAPS_API_KEY?.trim() || env.EMERGENCY_PASSWORD!,
   };
 }

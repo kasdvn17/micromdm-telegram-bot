@@ -18,6 +18,7 @@ import { createDefaultProfileService } from "./services/defaultProfileService";
 import { createAppManagementService } from "./services/appManagementService";
 import { createCodeforcesTaskService } from "./services/codeforcesTaskService";
 import { createDeviceManagerService } from "./services/deviceManagerService";
+import { createLapsService } from "./services/lapsService";
 import { FocusScheduler } from "./scheduler/focusScheduler";
 import { createMarkLostPoller } from "./scheduler/markLostPoller";
 import { createDeviceInfoPoller } from "./scheduler/deviceInfoPoller";
@@ -48,6 +49,7 @@ import { createSearchCommand } from "./commands/normal/search.command";
 import { createDeviceCommands } from "./commands/emergency/device.command";
 import { createUnlockCommand, createLostCommand } from "./commands/emergency/lostAndUnlock.command";
 import { createSafeCommand } from "./commands/emergency/safe.command";
+import { createLapsCommand } from "./commands/emergency/laps.command";
 import { createManageAppCommand } from "./commands/emergency/manageapp.command";
 import { createApiCommand } from "./commands/emergency/api.command";
 import {
@@ -235,6 +237,12 @@ async function main(): Promise<void> {
     { timeZone: config.constants.timeZone }
   );
 
+  const lapsService = createLapsService(
+    config.constants.lapsStateFilePath,
+    config.secrets.lapsApiKey,
+    bus
+  );
+
   // 6. Event subscribers
   attachHistoryLogger(bus, config.constants.historyFilePath);
   attachNotifyBridge(bus, notificationService);
@@ -252,7 +260,8 @@ async function main(): Promise<void> {
     bus,
     activationLockService,
     defaultProfileService,
-    deviceManager
+    deviceManager,
+    lapsService
   );
 
   // 8. Đăng ký toàn bộ command
@@ -282,6 +291,7 @@ async function main(): Promise<void> {
     createUnlockCommand(deviceCommands),
     createLostCommand(deviceCommands, bus, markLostService),
     createSafeCommand(safeModeService),
+    createLapsCommand(lapsService),
     createManageAppCommand(appManagementService),
     createApiCommand(deviceCommands, bus),
     createInstallAppCommand(appManagementService),

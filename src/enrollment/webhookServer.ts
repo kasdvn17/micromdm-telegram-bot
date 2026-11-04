@@ -6,6 +6,8 @@ import { ActivationLockServiceApi } from "../services/activationLockService";
 import { DefaultProfileServiceApi } from "../services/defaultProfileService";
 import { isRepeatCheckin } from "./checkinDedup";
 import { DeviceManagerServiceApi } from "../services/deviceManagerService";
+import { LapsServiceApi } from "../services/lapsService";
+import { AgentCheckinPayload, AgentReportPayload } from "../types/laps.types";
 import { getLogger } from "../utils/logger";
 import { readJsonState, writeJsonState } from "../utils/jsonStore";
 
@@ -65,11 +67,18 @@ export function startWebhookServer(
   bus: EventBus,
   activationLockService: ActivationLockServiceApi,
   defaultProfileService: DefaultProfileServiceApi,
-  deviceManager?: DeviceManagerServiceApi
+  deviceManager?: DeviceManagerServiceApi,
+  lapsService?: LapsServiceApi
 ): http.Server {
   const server = http.createServer((req, res) => {
     const requestPath = new URL(req.url ?? "/", "http://localhost").pathname;
-    if (requestPath !== options.path) {
+    
+    // Kiểm tra các route được hỗ trợ
+    const isWebhook = requestPath === options.path;
+    const isLapsCheckin = requestPath === "/api/laps/checkin";
+    const isLapsReport = requestPath === "/api/laps/report";
+
+    if (!isWebhook && !isLapsCheckin && !isLapsReport) {
       res.writeHead(404).end();
       return;
     }
@@ -94,6 +103,42 @@ export function startWebhookServer(
 
     req.on("end", () => {
       if (rejected) return;
+
+      // Xử lý LAPS API
+      if (isLapsCheckin || isLapsReport) {
+        if (!lapsService) {
+          res.writeHead(503, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ error: "LAPS Service chưa được kích hoạt" }));
+          return;
+        }
+
+        const authHeader = req.headers["authorization"] || req.headers["x-api-key"];
+        let apiKey = "";
+        if (typeof authHeader === "string") {
+          apiKey = authHeader.startsWith("Bearer ") ? authHeader.slice(7).trim() : authHeader.trim();
+        }
+
+        try {
+          const parsed = JSON.parse(body);
+          if (isLapsCheckin) {
+            const resp = lapsService.handleCheckin(apiKey, parsed as AgentCheckinPayload);
+            res.writeHead(200, { "Content-Type": "application/json" });
+            res.end(JSON.stringify(resp));
+          } else {
+            const resp = lapsService.handleReport(apiKey, parsed as AgentReportPayload);
+            res.writeHead(200, { "Content-Type": "application/json" });
+            res.end(JSON.stringify(resp));
+          }
+        } catch (err) {
+          const msg = (err as Error).message;
+          const status = msg.includes("Unauthorized") ? 401 : 400;
+          res.writeHead(status, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ error: msg }));
+        }
+        return;
+      }
+
+      // Xử lý Webhook MicroMDM
       res.writeHead(200).end();
       void handleWebhookBody(
         body,
