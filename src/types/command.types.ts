@@ -46,6 +46,8 @@ export interface CommandContext {
   effectiveArgs: string[];
   /** Hiển thị/cập nhật tiến độ tạm thời cho command chạy lâu. */
   progress(text: string): Promise<void>;
+  /** UDID của thiết bị đang được target (nếu có override qua --device / --target hoặc từ session) */
+  targetUDID?: string;
 }
 
 export type CommandResponse =

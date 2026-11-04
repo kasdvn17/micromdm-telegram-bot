@@ -68,6 +68,17 @@ Bot chỉ nhận command trong private chat. Message chứa Emergency password �
 /status
 /menu
 
+/devices
+/device list
+/device primary <1|2|tên|udid>
+/device target <1|2|tên|udid|primary>
+/device rename <1|2|tên|udid> <tên mới>
+/device add <udid> [tên]
+/device remove <1|2|tên|udid>
+/device sync
+/device info [1|2|tên|udid]
+/target [1|2|tên|udid|primary]
+
 /notify on|off|test
 /quote on|off|now|status
 /quote snooze <duration>
@@ -94,7 +105,22 @@ Sau khi `/task add bulk` thêm được ít nhất một bài, bot hỏi có mu�
 
 `/task list` được phân trang bằng inline keyboard. `/task next` chọn task active lâu nhất phù hợp bộ lọc; `/task suggest` tìm bài public chưa nằm trong task list/chưa được refresh xác nhận AC và có nút thêm từng bài hoặc thêm tất cả. `/task stats` hiển thị tiến độ 7 ngày, rating trung bình, streak và tag. Auto-archive được điều khiển bằng `/task archive auto`; `/task undo` phục hồi thay đổi task/tag gần nhất mà không rollback submission gate.
 
-`/menu` mở dashboard với các nút Refresh, Break, Focus off, Tasks, Next task và Tags. **Break và Focus off không tự refresh:** phải bấm Refresh hoặc dùng `/refresh` trước, sau đó mới thực hiện thao tác gate.
+`/menu` mở dashboard với các nút Refresh, Break, Focus off, Tasks, Next task, Tags và Devices. **Break và Focus off không tự refresh:** phải bấm Refresh hoặc dùng `/refresh` trước, sau đó mới thực hiện thao tác gate.
+
+### Quản lý nhiều thiết bị (Multi-Device)
+
+Bot hỗ trợ quản lý nhiều thiết bị Apple đã enroll vào MicroMDM:
+- **Primary Device (⭐)**: Thiết bị chính của bạn (mặc định khởi tạo từ `DEVICE_UUID`). Được dùng làm fallback mặc định và cho các scheduler nền.
+- **Active Target Device (🎯)**: Thiết bị hiện tại được chọn để áp dụng các lệnh điều khiển (Focus, Safe Mode, Lock, Restart, v.v.).
+- **Đổi Target linh hoạt**:
+  - Đổi target mặc định bằng lệnh: `/target <1|2|tên|udid>` hoặc bấm nút `[🎯 Chọn Target]` trên tin nhắn `/devices`.
+  - Quay lại thiết bị chính: `/target primary`.
+  - Chỉ định target riêng trong 1 lệnh duy nhất (không đổi target chung) bằng cờ `--target <id>`, `--device <id>` hoặc `-d <id>`:
+    ```text
+    /lock <password> --target 2
+    /battery <password> realtime -d "iPad Air"
+    /deviceinfo <password> --device 00008110-0012...
+    ```
 
 ### Emergency
 

@@ -1,8 +1,10 @@
 import TelegramBot from "node-telegram-bot-api";
 import { CodeforcesTaskServiceApi } from "../services/codeforcesTaskService";
 import { DeviceInfoServiceApi } from "../services/deviceInfoService";
+import { DeviceManagerServiceApi } from "../services/deviceManagerService";
 import { FocusServiceApi } from "../services/focusService";
 import { buildDashboardReply } from "../commands/normal/status.command";
+import { buildDeviceListReply } from "../commands/normal/device.command";
 import {
   buildNextTaskFilterReply,
   buildTagSelectorReply,
@@ -22,7 +24,8 @@ export function attachMenuInteraction(
   taskService: CodeforcesTaskServiceApi,
   deviceInfoService: DeviceInfoServiceApi,
   authorizedUsername: string,
-  authorizedTelegramUserId?: number
+  authorizedTelegramUserId?: number,
+  deviceManager?: DeviceManagerServiceApi
 ): void {
   const authorized = authorizedUsername.toLocaleLowerCase().replace(/^@/, "");
   const running = new Set<number>();
@@ -64,6 +67,12 @@ export function attachMenuInteraction(
           else await bot.sendMessage(message.chat.id, reply.text, reply.options);
           return;
         }
+        if (action === "devices" && deviceManager) {
+          const reply = buildDeviceListReply(deviceManager, true);
+          if (typeof reply === "string") await bot.sendMessage(message.chat.id, reply);
+          else await bot.sendMessage(message.chat.id, reply.text, reply.options);
+          return;
+        }
         if (action === "refresh") {
           await bot.editMessageText("🔄 Đang kiểm tra submission Codeforces...", {
             chat_id: message.chat.id,
@@ -100,7 +109,8 @@ export function attachMenuInteraction(
           taskService,
           deviceInfoService,
           query.from.id,
-          true
+          true,
+          deviceManager
         );
         if (typeof reply !== "string") {
           await bot.editMessageText(reply.text, {
@@ -118,7 +128,8 @@ export function attachMenuInteraction(
             taskService,
             deviceInfoService,
             query.from.id,
-            true
+            true,
+            deviceManager
           );
           if (typeof dashboard !== "string") {
             await bot.editMessageText(dashboard.text, {

@@ -18,8 +18,8 @@ export type AppEvent =
    * đầy đủ vào history.json như mọi event khác.
    */
   | { type: "device.heartbeat"; deviceUUID: string; requestType: string }
-  | { type: "device.online" }
-  | { type: "device.offline"; details?: Record<string, unknown> }
+  | { type: "device.online"; deviceUUID?: string }
+  | { type: "device.offline"; deviceUUID?: string; details?: Record<string, unknown> }
   | { type: "profile.installed"; identifier: string }
   | { type: "profile.removed"; identifier: string }
   | {
@@ -60,13 +60,14 @@ export type AppEvent =
   | { type: "lostmode.disabled" }
   | { type: "playsound.requested" }
   | { type: "activationlock.result"; success: boolean; reason?: string }
-  | { type: "mdm.command.queued"; command: string; commandUUID: string }
-  | { type: "mdm.command.acked"; command: string; commandUUID: string }
-  | { type: "mdm.command.succeeded"; command: string; commandUUID: string }
+  | { type: "mdm.command.queued"; command: string; commandUUID: string; deviceUUID?: string }
+  | { type: "mdm.command.acked"; command: string; commandUUID: string; deviceUUID?: string }
+  | { type: "mdm.command.succeeded"; command: string; commandUUID: string; deviceUUID?: string }
   | {
       type: "mdm.command.failed";
       command: string;
       commandUUID: string;
+      deviceUUID?: string;
       error: string;
     }
   | { type: "scheduler.started"; scheduleId: string }

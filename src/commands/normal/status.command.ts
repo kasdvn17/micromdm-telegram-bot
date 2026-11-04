@@ -1,19 +1,21 @@
 import { AuthTier, CommandDefinition, CommandResponse } from "../../types/command.types";
 import { CodeforcesTaskServiceApi } from "../../services/codeforcesTaskService";
 import { DeviceInfoServiceApi } from "../../services/deviceInfoService";
+import { DeviceManagerServiceApi } from "../../services/deviceManagerService";
 import { FocusServiceApi } from "../../services/focusService";
 import { formatDuration } from "../../utils/time";
 
 export function createStatusCommand(
   focusService: Pick<FocusServiceApi, "status" | "breakUsageRemainingToday">,
   taskService: CodeforcesTaskServiceApi,
-  deviceInfoService: DeviceInfoServiceApi
+  deviceInfoService: DeviceInfoServiceApi,
+  deviceManager?: DeviceManagerServiceApi
 ): CommandDefinition {
   return {
     name: "status",
     tier: AuthTier.Normal,
     handler: async (ctx): Promise<CommandResponse> =>
-      buildDashboardReply(focusService, taskService, deviceInfoService, ctx.message.telegramId, false),
+      buildDashboardReply(focusService, taskService, deviceInfoService, ctx.message.telegramId, false, deviceManager),
   };
 }
 
@@ -22,7 +24,8 @@ export async function buildDashboardReply(
   taskService: CodeforcesTaskServiceApi,
   deviceInfoService: DeviceInfoServiceApi,
   telegramId: number,
-  interactive = true
+  interactive = true,
+  deviceManager?: DeviceManagerServiceApi
 ): Promise<CommandResponse> {
       const focus = focusService.status();
       const breakRemaining = focusService.breakUsageRemainingToday();
@@ -42,9 +45,17 @@ export async function buildDashboardReply(
       const tasks = taskService.listTasks(telegramId);
       const activeTasks = tasks.filter((task) => task.status === "active" && !task.archivedAt);
       const device = await deviceInfoService.getDeviceInfo(false);
+
+      const target = deviceManager?.getActiveTargetDevice();
+      const primary = deviceManager?.getPrimaryDevice();
+      const isPrimary = target && primary && target.udid.toLowerCase() === primary.udid.toLowerCase();
+      const deviceTitle = target
+        ? `${target.name} (${isPrimary ? "⭐ Primary · 🎯 Target" : "🎯 Target"})`
+        : (device.deviceName ?? "Thiết bị");
+
       const text = [
         "📊 Tổng quan",
-        `📱 ${device.deviceName ?? "Thiết bị"}: ${device.batteryLevel === undefined ? "pin ?" : `${Math.round(device.batteryLevel * 100)}%`} (${device.source})`,
+        `📱 ${deviceTitle}: ${device.batteryLevel === undefined ? "pin ?" : `${Math.round(device.batteryLevel * 100)}%`} (${device.source})`,
         `🎯 Focus: ${focus.active ? "BẬT" : "TẮT"}${focus.withinSleep ? " · Sleep Mode" : ""}${focus.sleepUnlock.breakActive ? ` · Sleep break còn ${formatDuration(focus.sleepUnlock.breakRemainingMs)}` : focus.onBreak ? ` · break còn ${formatDuration(focus.breakRemainingMs ?? 0)}` : ""}`,
         `☕ Gate break: ${gate.acceptedSinceLastBreak}/${gate.breakRequiredCount}${gate.breakAllowed ? " ✅" : " ⏳"}`,
         focus.sleepUnlock.unlockedByEarlierFocusOff || legacyDailyUnlock
@@ -79,7 +90,10 @@ export async function buildDashboardReply(
                 { text: "🎯 Next task", callback_data: "dash:next" },
                 { text: "🏷 Tags", callback_data: "dash:tags" },
               ],
-              [{ text: "↻ Cập nhật dashboard", callback_data: "dash:reload" }],
+              [
+                { text: "📱 Thiết bị", callback_data: "dash:devices" },
+                { text: "↻ Cập nhật dashboard", callback_data: "dash:reload" },
+              ],
             ],
           },
         },

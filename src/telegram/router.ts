@@ -8,9 +8,31 @@ import {
 } from "../types/command.types";
 import { createAuthChecker } from "./authMiddleware";
 import { EmergencyAuthServiceApi } from "../services/emergencyAuthService";
+import { DeviceManagerServiceApi } from "../services/deviceManagerService";
 import { getLogger } from "../utils/logger";
 import { formatError, formatUnauthorized } from "./replyFormatter";
 import { EventBus } from "../events/eventBus";
+
+function extractTargetFlag(args: string[]): { cleanArgs: string[]; targetQuery?: string } {
+  const cleanArgs: string[] = [];
+  let targetQuery: string | undefined;
+
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+    if (arg === "--target" || arg === "--device" || arg === "-d") {
+      if (i + 1 < args.length) {
+        targetQuery = args[i + 1];
+        i++;
+      }
+    } else if (arg.startsWith("--target=") || arg.startsWith("--device=")) {
+      targetQuery = arg.split("=")[1];
+    } else {
+      cleanArgs.push(arg);
+    }
+  }
+
+  return { cleanArgs, targetQuery };
+}
 
 /**
  * Quy ước tham số theo tier (đã chốt trong Phase 3/4, áp dụng nhất quán
@@ -50,7 +72,8 @@ export function createRouter(
   authorizedUsername: string,
   authorizedTelegramUserId: number | undefined,
   emergencyAuth: EmergencyAuthServiceApi,
-  bus: EventBus
+  bus: EventBus,
+  deviceManager?: DeviceManagerServiceApi
 ) {
   const checkAuth = createAuthChecker(authorizedUsername, authorizedTelegramUserId, emergencyAuth);
   const commandMap = new Map(commands.map((c) => [c.name.toLowerCase(), c]));
@@ -136,10 +159,34 @@ export function createRouter(
       });
     }
 
+    let finalArgs = effectiveArgs;
+    let targetUDID: string | undefined = deviceManager?.getActiveTargetUDID();
+
+    if (parsed.name !== "target" && parsed.name !== "device") {
+      const { cleanArgs, targetQuery } = extractTargetFlag(effectiveArgs);
+      if (targetQuery) {
+        if (deviceManager) {
+          const resolved = deviceManager.resolveDevice(targetQuery);
+          if (!resolved) {
+            await bot.sendMessage(
+              message.chatId,
+              `❌ Không tìm thấy thiết bị nào khớp với "${targetQuery}". Dùng /devices để xem danh sách.`
+            );
+            return;
+          }
+          targetUDID = resolved.udid;
+        } else {
+          targetUDID = targetQuery;
+        }
+        finalArgs = cleanArgs;
+      }
+    }
+
     const ctx: CommandContext = {
       message,
-      parsed: { ...parsed, subcommand: effectiveArgs[0] },
-      effectiveArgs,
+      parsed: { ...parsed, subcommand: finalArgs[0] },
+      effectiveArgs: finalArgs,
+      targetUDID,
       progress: async () => undefined,
     };
 
@@ -164,7 +211,11 @@ export function createRouter(
 
     try {
       await bot.sendChatAction(message.chatId, "typing");
-      const response = await definition.handler(ctx);
+      const execute = () => definition.handler(ctx);
+      const response =
+        deviceManager && targetUDID
+          ? await deviceManager.runWithTarget(targetUDID, execute)
+          : await execute();
       const reply =
         typeof response === "string" ? { text: response } : response;
       // Telegram giới hạn 4096 ký tự cho 1 tin nhắn, nếu reply quá dài thì cắt làm nhiều tin nhắn

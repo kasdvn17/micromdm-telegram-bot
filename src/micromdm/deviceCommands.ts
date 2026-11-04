@@ -24,7 +24,20 @@ function escapeXml(value: string): string {
  * gọi để tương tác với thiết bị - không service nào được gọi thẳng `MicroMdmClient`.
  */
 export class DeviceCommands {
-  constructor(private readonly client: MicroMdmClient, private readonly deviceUUID: string) {}
+  constructor(
+    private readonly client: MicroMdmClient,
+    private readonly targetUDIDProvider: string | (() => string)
+  ) {}
+
+  public get deviceUUID(): string {
+    return typeof this.targetUDIDProvider === "function"
+      ? this.targetUDIDProvider()
+      : this.targetUDIDProvider;
+  }
+
+  public forDevice(udid: string): DeviceCommands {
+    return new DeviceCommands(this.client, udid);
+  }
 
   lock(pin?: string): Promise<MdmCommandQueuedResult> {
     return this.client.queueCommand({

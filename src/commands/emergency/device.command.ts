@@ -1,19 +1,26 @@
 import { AuthTier, CommandContext, CommandDefinition } from "../../types/command.types";
 import { DeviceCommands } from "../../micromdm/deviceCommands";
 import { DeviceInfoServiceApi } from "../../services/deviceInfoService";
+import { DeviceManagerServiceApi } from "../../services/deviceManagerService";
 import { ValidationError } from "../../utils/errors";
 
 export function createDeviceCommands(
   deviceCommands: DeviceCommands,
-  deviceInfoService: DeviceInfoServiceApi
+  deviceInfoService: DeviceInfoServiceApi,
+  deviceManager?: DeviceManagerServiceApi
 ): CommandDefinition[] {
+  const getPrefix = () => {
+    const dev = deviceManager?.getActiveTargetDevice();
+    return dev ? `[${dev.name}] ` : "";
+  };
+
   return [
     {
       name: "lock",
       tier: AuthTier.Emergency,
       handler: async (): Promise<string> => {
         await deviceCommands.lock();
-        return "🔒 Đã gửi lệnh khoá máy.";
+        return `🔒 ${getPrefix()}Đã gửi lệnh khoá máy.`;
       },
     },
     {
@@ -21,7 +28,7 @@ export function createDeviceCommands(
       tier: AuthTier.Emergency,
       handler: async (): Promise<string> => {
         await deviceCommands.restart();
-        return "🔄 Đã gửi lệnh restart máy.";
+        return `🔄 ${getPrefix()}Đã gửi lệnh restart máy.`;
       },
     },
     {
@@ -29,7 +36,7 @@ export function createDeviceCommands(
       tier: AuthTier.Emergency,
       handler: async (): Promise<string> => {
         await deviceCommands.shutdown();
-        return "🔌 Đã gửi lệnh tắt máy.";
+        return `🔌 ${getPrefix()}Đã gửi lệnh tắt máy.`;
       },
     },
     {
@@ -37,7 +44,7 @@ export function createDeviceCommands(
       tier: AuthTier.Emergency,
       handler: async (): Promise<string> => {
         await deviceCommands.playSound();
-        return "🔊 Đã yêu cầu phát âm thanh.";
+        return `🔊 ${getPrefix()}Đã yêu cầu phát âm thanh.`;
       },
     },
     {
@@ -46,7 +53,7 @@ export function createDeviceCommands(
       handler: async (ctx: CommandContext): Promise<string> => {
         const realtime = ctx.effectiveArgs[0] === "realtime";
         const info = await deviceInfoService.getBattery(realtime);
-        return `🔋 Pin: ${Math.round(info.batteryLevel * 100)}% (${info.batteryState}) - nguồn: ${info.source}`;
+        return `🔋 ${getPrefix()}Pin: ${Math.round(info.batteryLevel * 100)}% (${info.batteryState}) - nguồn: ${info.source}`;
       },
     },
     {
@@ -54,7 +61,7 @@ export function createDeviceCommands(
       tier: AuthTier.Emergency,
       handler: async (): Promise<string> => {
         const info = await deviceInfoService.getLocation(true);
-        return `📍 Vị trí: ${info.latitude}, ${info.longitude} (độ chính xác: ${info.horizontalAccuracy ?? "?"}m)`;
+        return `📍 ${getPrefix()}Vị trí: ${info.latitude}, ${info.longitude} (độ chính xác: ${info.horizontalAccuracy ?? "?"}m)`;
       },
     },
     {
@@ -65,7 +72,7 @@ export function createDeviceCommands(
         const info = await deviceInfoService.getDeviceInfo(realtime);
 
         const summary =
-          `📱 ${info.deviceName ?? "?"} (${info.modelName ?? "?"})\n` +
+          `📱 ${getPrefix()}${info.deviceName ?? "?"} (${info.modelName ?? "?"})\n` +
           `OS: ${info.osVersion ?? "?"}\n` +
           `Pin: ${info.batteryLevel !== undefined ? Math.round(info.batteryLevel * 100) + "%" : "?"} (${info.batteryState ?? "?"})\n` +
           `Supervised: ${info.isSupervised ?? "?"}\n` +
@@ -87,7 +94,7 @@ export function createDeviceCommands(
       tier: AuthTier.Emergency,
       handler: async (): Promise<string> => {
         const info = await deviceInfoService.getDeviceInfo(false);
-        return `📊 Trạng thái thiết bị (cache): ${JSON.stringify(info, null, 2)}`;
+        return `📊 ${getPrefix()}Trạng thái thiết bị (cache): ${JSON.stringify(info, null, 2)}`;
       },
     },
     {
@@ -95,7 +102,7 @@ export function createDeviceCommands(
       tier: AuthTier.Emergency,
       handler: async (): Promise<string> => {
         const info = await deviceCommands.getSecurityInfo();
-        return `🛡️ Security Info:\n${JSON.stringify(info, null, 2)}`;
+        return `🛡️ ${getPrefix()}Security Info:\n${JSON.stringify(info, null, 2)}`;
       },
     },
     {
@@ -114,7 +121,7 @@ export function createDeviceCommands(
           const base64Data = Buffer.from(buffer).toString("base64");
           
           await deviceCommands.setWallpaper(base64Data, 3); // 3 = both
-          return "🖼️ Đã gửi lệnh đổi hình nền (cả Lock screen & Home screen).";
+          return `🖼️ ${getPrefix()}Đã gửi lệnh đổi hình nền (cả Lock screen & Home screen).`;
         } catch (err) {
           return `❌ Lỗi tải ảnh: ${(err as Error).message}`;
         }
@@ -136,7 +143,7 @@ export function createDeviceCommands(
           BluetoothMAC: "🔵 Bluetooth MAC",
         };
         const shown = new Set<string>();
-        let summary = "🌐 Network Information:\n";
+        let summary = `🌐 ${getPrefix()}Network Information:\n`;
         for (const [key, label] of Object.entries(keyMap)) {
           if (raw[key] !== undefined) {
             summary += `${label}: ${raw[key]}\n`;
@@ -156,7 +163,7 @@ export function createDeviceCommands(
       tier: AuthTier.Emergency,
       handler: async (): Promise<string> => {
         await deviceCommands.refreshCellularPlans();
-        return "📶 Đã yêu cầu thiết bị cập nhật lại gói cước cellular/eSIM.";
+        return `📶 ${getPrefix()}Đã yêu cầu thiết bị cập nhật lại gói cước cellular/eSIM.`;
       },
     },
   ];

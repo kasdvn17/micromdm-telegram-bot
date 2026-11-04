@@ -33,10 +33,10 @@ function formatEvent(event: AppEvent): string {
     case "device.heartbeat":
       return `💓 Check-in định kỳ (heartbeat): ${event.requestType}`;
     case "device.online":
-      return `🟢 Thiết bị online`;
+      return `🟢 Thiết bị online${event.deviceUUID ? ` (${event.deviceUUID})` : ""}`;
     case "device.offline": {
       const details = truncateJson(event.details);
-      return `🔴 Thiết bị offline${details ? `\n\`\`\`\n${details}\n\`\`\`` : ""}`;
+      return `🔴 Thiết bị offline${event.deviceUUID ? ` (${event.deviceUUID})` : ""}${details ? `\n\`\`\`\n${details}\n\`\`\`` : ""}`;
     }
     case "profile.installed":
       return `📄 Profile đã cài: ${event.identifier}`;

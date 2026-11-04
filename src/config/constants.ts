@@ -13,8 +13,11 @@ export interface AppConstants {
   /** IANA timezone dùng thống nhất cho schedule, Sleep và Codeforces daily gates. */
   timeZone: string;
 
-  /** UDID của chiếc iPhone duy nhất mà bot điều khiển */
+  /** UDID của chiếc iPhone duy nhất hoặc mặc định ban đầu mà bot điều khiển */
   deviceUUID: string;
+
+  /** Đường dẫn file JSON lưu danh sách thiết bị quản lý (devices.json) */
+  devicesFilePath: string;
 
   /** Chu kỳ poll battery/location/deviceinfo để cache (ms) */
   deviceInfoPollIntervalMs: number;
@@ -127,6 +130,8 @@ export function loadConstants(env: NodeJS.ProcessEnv = process.env): AppConstant
     dataDir: DATA_DIR,
     timeZone,
     deviceUUID,
+    devicesFilePath:
+      env.DEVICES_FILE_PATH?.trim() || path.join(DATA_DIR, "devices.json"),
     deviceInfoPollIntervalMs: parseIntEnv(
       env.DEVICE_INFO_POLL_INTERVAL_MS,
       DEFAULT_DEVICE_INFO_POLL_INTERVAL_MS

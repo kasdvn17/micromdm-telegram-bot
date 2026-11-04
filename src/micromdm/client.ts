@@ -8,6 +8,7 @@ import {
   MdmCommandQueuedResult,
   MdmCommandResult,
   MdmRequestType,
+  MicroMdmDeviceSummary,
 } from "../types/micromdm.types";
 
 export interface MicroMdmClientOptions {
@@ -267,6 +268,34 @@ export class MicroMdmClient {
       request_type: "RemoveProfile",
       Identifier: profileIdentifier,
     });
+  }
+
+  /**
+   * Lấy danh sách thiết bị đã enroll từ MicroMDM qua GET /v1/devices.
+   * Nếu MicroMDM không trả về danh sách hợp lệ hoặc lỗi, fallback trả về mảng rỗng.
+   */
+  async getDevices(): Promise<MicroMdmDeviceSummary[]> {
+    try {
+      const res = await fetch(`${this.options.baseUrl}/v1/devices`, {
+        method: "GET",
+        headers: this.authHeaders(),
+      });
+      if (!res.ok) {
+        getLogger().warn("[micromdm] GET /v1/devices trả status", { status: res.status });
+        return [];
+      }
+      const data = (await res.json()) as
+        | { devices?: MicroMdmDeviceSummary[] }
+        | MicroMdmDeviceSummary[];
+      if (Array.isArray(data)) return data;
+      if (data && Array.isArray(data.devices)) return data.devices;
+      return [];
+    } catch (err) {
+      getLogger().warn("[micromdm] Lỗi khi lấy danh sách thiết bị từ MicroMDM", {
+        error: (err as Error).message,
+      });
+      return [];
+    }
   }
 
   private createPendingPromise(

@@ -114,3 +114,33 @@ export interface MicroMdmWebhookEvent {
   checkin_event?: MicroMdmCheckinEvent;
   acknowledge_event?: MicroMdmAcknowledgeEvent;
 }
+
+export interface MicroMdmDeviceSummary {
+  udid: string;
+  serial_number?: string;
+  last_seen?: string;
+  enrollment_status?: boolean;
+}
+
+export interface DeviceRecord {
+  udid: string;
+  name: string;
+  model?: string;
+  modelName?: string;
+  osVersion?: string;
+  serialNumber?: string;
+  batteryLevel?: number; // 0..1
+  batteryState?: string;
+  isSupervised?: boolean;
+  isPrimary: boolean;
+  status: "online" | "offline" | "enrolled";
+  enrolledAt: string;
+  lastSeenAt: string;
+}
+
+export interface DeviceRegistryState {
+  primaryUdid: string;
+  activeTargetUdid?: string;
+  devices: DeviceRecord[];
+}
+

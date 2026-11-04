@@ -1,5 +1,6 @@
 import { CodeforcesTaskServiceApi } from "../../services/codeforcesTaskService";
 import { DeviceInfoServiceApi } from "../../services/deviceInfoService";
+import { DeviceManagerServiceApi } from "../../services/deviceManagerService";
 import { FocusServiceApi } from "../../services/focusService";
 import { AuthTier, CommandDefinition } from "../../types/command.types";
 import { buildDashboardReply } from "./status.command";
@@ -7,7 +8,8 @@ import { buildDashboardReply } from "./status.command";
 export function createMenuCommand(
   focusService: Pick<FocusServiceApi, "status" | "breakUsageRemainingToday">,
   taskService: CodeforcesTaskServiceApi,
-  deviceInfoService: DeviceInfoServiceApi
+  deviceInfoService: DeviceInfoServiceApi,
+  deviceManager?: DeviceManagerServiceApi
 ): CommandDefinition {
   return {
     name: "menu",
@@ -17,7 +19,8 @@ export function createMenuCommand(
       taskService,
       deviceInfoService,
       ctx.message.telegramId,
-      true
+      true,
+      deviceManager
     ),
   };
 }

@@ -17,6 +17,7 @@ import { createActivationLockService } from "./services/activationLockService";
 import { createDefaultProfileService } from "./services/defaultProfileService";
 import { createAppManagementService } from "./services/appManagementService";
 import { createCodeforcesTaskService } from "./services/codeforcesTaskService";
+import { createDeviceManagerService } from "./services/deviceManagerService";
 import { FocusScheduler } from "./scheduler/focusScheduler";
 import { createMarkLostPoller } from "./scheduler/markLostPoller";
 import { createDeviceInfoPoller } from "./scheduler/deviceInfoPoller";
@@ -25,10 +26,12 @@ import { createBot } from "./telegram/bot";
 import { createRouter } from "./telegram/router";
 import { attachTaskTagInteraction } from "./telegram/taskTagInteraction";
 import { attachMenuInteraction } from "./telegram/menuInteraction";
+import { attachDeviceInteraction } from "./telegram/deviceInteraction";
 import { startWebhookServer } from "./enrollment/webhookServer";
 import { CommandDefinition } from "./types/command.types";
 
 import { createFocusCommand } from "./commands/normal/focus.command";
+import { createDeviceManagementCommands } from "./commands/normal/device.command";
 import { createMenuCommand } from "./commands/normal/menu.command";
 import { createQuoteCommand } from "./commands/normal/quote.command";
 import { createNotifyCommand } from "./commands/normal/notify.command";
@@ -108,7 +111,15 @@ async function main(): Promise<void> {
     apiKey: config.secrets.microMdmApiKey,
     commandResultTimeoutMs: config.constants.commandResultTimeoutMs,
   });
-  const deviceCommands = new DeviceCommands(microMdmClient, config.constants.deviceUUID);
+  const deviceManager = createDeviceManagerService(
+    config.constants.devicesFilePath,
+    config.constants.deviceUUID,
+    "./data/seen-devices.json"
+  );
+  const deviceCommands = new DeviceCommands(
+    microMdmClient,
+    () => deviceManager.getActiveTargetUDID()
+  );
 
   // 3. Telegram bot + notification service
   const bot = createBot(config.secrets.telegramBotToken);
@@ -207,7 +218,7 @@ async function main(): Promise<void> {
     bus
   );
 
-  const deviceInfoPoller = createDeviceInfoPoller(deviceCommands);
+  const deviceInfoPoller = createDeviceInfoPoller(deviceCommands, deviceManager);
   const deviceInfoService = createDeviceInfoService(deviceCommands, deviceInfoPoller);
 
   const activationLockService = createActivationLockService(deviceCommands, bus);
@@ -240,16 +251,18 @@ async function main(): Promise<void> {
     microMdmClient,
     bus,
     activationLockService,
-    defaultProfileService
+    defaultProfileService,
+    deviceManager
   );
 
   // 8. Đăng ký toàn bộ command
   const commands: CommandDefinition[] = [
+    ...createDeviceManagementCommands(deviceManager, microMdmClient),
     createFocusCommand(focusService, codeforcesTaskService),
     createTaskCommand(codeforcesTaskService, focusService),
     createRefreshCommand(codeforcesTaskService, focusService),
-    createStatusCommand(focusService, codeforcesTaskService, deviceInfoService),
-    createMenuCommand(focusService, codeforcesTaskService, deviceInfoService),
+    createStatusCommand(focusService, codeforcesTaskService, deviceInfoService, deviceManager),
+    createMenuCommand(focusService, codeforcesTaskService, deviceInfoService, deviceManager),
     createQuoteCommand(quoteScheduler),
     createNotifyCommand(notificationService),
     createPingCommand(),
@@ -265,7 +278,7 @@ async function main(): Promise<void> {
     createAuthTestCommand(emergencyAuthService),
     createSearchCommand(),
     createBlacklistCommand(blacklistService),
-    ...createDeviceCommands(deviceCommands, deviceInfoService),
+    ...createDeviceCommands(deviceCommands, deviceInfoService, deviceManager),
     createUnlockCommand(deviceCommands),
     createLostCommand(deviceCommands, bus, markLostService),
     createSafeCommand(safeModeService),
@@ -285,7 +298,8 @@ async function main(): Promise<void> {
     config.secrets.authorizedTelegramUsername,
     config.secrets.authorizedTelegramUserId,
     emergencyAuthService,
-    bus
+    bus,
+    deviceManager
   );
   attachTaskTagInteraction(
     bot,
@@ -298,6 +312,14 @@ async function main(): Promise<void> {
     focusService,
     codeforcesTaskService,
     deviceInfoService,
+    config.secrets.authorizedTelegramUsername,
+    config.secrets.authorizedTelegramUserId,
+    deviceManager
+  );
+  attachDeviceInteraction(
+    bot,
+    deviceManager,
+    microMdmClient,
     config.secrets.authorizedTelegramUsername,
     config.secrets.authorizedTelegramUserId
   );

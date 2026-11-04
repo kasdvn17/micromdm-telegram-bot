@@ -5,13 +5,14 @@ import { EventBus } from "../events/eventBus";
 import { ActivationLockServiceApi } from "../services/activationLockService";
 import { DefaultProfileServiceApi } from "../services/defaultProfileService";
 import { isRepeatCheckin } from "./checkinDedup";
+import { DeviceManagerServiceApi } from "../services/deviceManagerService";
 import { getLogger } from "../utils/logger";
 import { readJsonState, writeJsonState } from "../utils/jsonStore";
 
 export interface WebhookServerOptions {
   port: number;
   path: string;
-  deviceUUID: string;
+  deviceUUID?: string;
   /** File lưu danh sách UDID đã từng thấy, dùng để tự phát hiện enrollment MỚI
    *  (MicroMDM KHÔNG có topic "mdm.Enrollment" riêng - đây là cách chính thức
    *  được khuyến nghị, theo repo mẫu micromdm-webhook-blueprints). */
@@ -63,7 +64,8 @@ export function startWebhookServer(
   client: MicroMdmClient,
   bus: EventBus,
   activationLockService: ActivationLockServiceApi,
-  defaultProfileService: DefaultProfileServiceApi
+  defaultProfileService: DefaultProfileServiceApi,
+  deviceManager?: DeviceManagerServiceApi
 ): http.Server {
   const server = http.createServer((req, res) => {
     const requestPath = new URL(req.url ?? "/", "http://localhost").pathname;
@@ -93,7 +95,15 @@ export function startWebhookServer(
     req.on("end", () => {
       if (rejected) return;
       res.writeHead(200).end();
-      void handleWebhookBody(body, options, client, bus, activationLockService, defaultProfileService);
+      void handleWebhookBody(
+        body,
+        options,
+        client,
+        bus,
+        activationLockService,
+        defaultProfileService,
+        deviceManager
+      );
     });
   });
 
@@ -121,7 +131,8 @@ async function handleWebhookBody(
   client: MicroMdmClient,
   bus: EventBus,
   activationLockService: ActivationLockServiceApi,
-  defaultProfileService: DefaultProfileServiceApi
+  defaultProfileService: DefaultProfileServiceApi,
+  deviceManager?: DeviceManagerServiceApi
 ): Promise<void> {
   let event: MicroMdmWebhookEvent;
   try {
@@ -136,9 +147,15 @@ async function handleWebhookBody(
   switch (event.topic) {
     case "mdm.TokenUpdate": {
       const ci = event.checkin_event;
-      if (!ci || ci.udid !== options.deviceUUID) break;
+      if (!ci || !ci.udid) break;
 
       const decoded = ci.raw_payload ? client.decodeBase64Plist(ci.raw_payload) : {};
+
+      // Cập nhật trạng thái thiết bị trong DeviceManager
+      deviceManager?.registerOrUpdate(ci.udid, {
+        status: "online",
+        lastSeenAt: new Date().toISOString(),
+      });
 
       // TokenUpdate lần đầu (push token vừa đăng ký) ~= enrollment vừa hoàn tất.
       // Đây là cách MicroMDM chính thức khuyến nghị để phát hiện enroll mới,
@@ -162,56 +179,100 @@ async function handleWebhookBody(
           requestType: event.topic,
           details: decoded,
         });
-        bus.publish({ type: "device.online" });
+        bus.publish({ type: "device.online", deviceUUID: ci.udid });
       }
       break;
     }
 
     case "mdm.Authenticate": {
       const ci = event.checkin_event;
-      if (!ci || ci.udid !== options.deviceUUID) break;
+      if (!ci || !ci.udid) break;
+
       // Authenticate chỉ xảy ra ở bước đầu handshake enrollment/re-enrollment
       // (không xảy ra định kỳ như TokenUpdate) - luôn coi là có ý nghĩa, không
       // áp dụng lọc heartbeat, luôn đính kèm raw_payload đã decode.
       const decoded = ci.raw_payload ? client.decodeBase64Plist(ci.raw_payload) : {};
+
+      const deviceName = decoded["DeviceName"] ? String(decoded["DeviceName"]) : undefined;
+      const model = decoded["ModelName"] || decoded["Model"] ? String(decoded["ModelName"] ?? decoded["Model"]) : undefined;
+      const osVersion = decoded["OSVersion"] ? String(decoded["OSVersion"]) : undefined;
+      const serialNumber = decoded["SerialNumber"] ? String(decoded["SerialNumber"]) : undefined;
+
+      deviceManager?.registerOrUpdate(ci.udid, {
+        ...(deviceName ? { name: deviceName } : {}),
+        ...(model ? { model } : {}),
+        ...(osVersion ? { osVersion } : {}),
+        ...(serialNumber ? { serialNumber } : {}),
+        status: "online",
+        lastSeenAt: new Date().toISOString(),
+      });
+
       bus.publish({
         type: "device.checkin",
         deviceUUID: ci.udid,
         requestType: event.topic,
         details: decoded,
       });
-      bus.publish({ type: "device.online" });
+      bus.publish({ type: "device.online", deviceUUID: ci.udid });
       break;
     }
 
     case "mdm.CheckOut": {
       const ci = event.checkin_event;
-      if (!ci || ci.udid !== options.deviceUUID) break;
+      if (!ci || !ci.udid) break;
       const decoded = ci.raw_payload ? client.decodeBase64Plist(ci.raw_payload) : undefined;
-      bus.publish({ type: "device.offline", details: decoded });
+      deviceManager?.registerOrUpdate(ci.udid, {
+        status: "offline",
+        lastSeenAt: new Date().toISOString(),
+      });
+      bus.publish({ type: "device.offline", deviceUUID: ci.udid, details: decoded });
       break;
     }
 
     case "mdm.Connect": {
       const ack = event.acknowledge_event;
-      if (!ack || ack.udid !== options.deviceUUID) break;
+      if (!ack || !ack.udid) break;
+
       const requestType = client.resolveAcknowledge(
         ack.command_uuid,
         ack.status,
         ack.raw_payload
       );
       const command = requestType ?? "UnknownCommand";
+
+      if (ack.status === "Acknowledged" && command === "DeviceInformation" && ack.raw_payload) {
+        try {
+          const parsed = client.decodeBase64Plist(ack.raw_payload);
+          const raw = (parsed["QueryResponses"] as Record<string, unknown>) ?? parsed;
+          deviceManager?.registerOrUpdate(ack.udid, {
+            ...(raw["DeviceName"] ? { name: String(raw["DeviceName"]) } : {}),
+            ...(raw["ModelName"] || raw["Model"] ? { model: String(raw["ModelName"] ?? raw["Model"]) } : {}),
+            ...(raw["OSVersion"] ? { osVersion: String(raw["OSVersion"]) } : {}),
+            ...(raw["SerialNumber"] ? { serialNumber: String(raw["SerialNumber"]) } : {}),
+            ...(raw["BatteryLevel"] !== undefined ? { batteryLevel: Number(raw["BatteryLevel"]) } : {}),
+            ...(raw["BatteryState"] ? { batteryState: String(raw["BatteryState"]) } : {}),
+            ...(raw["IsSupervised"] !== undefined ? { isSupervised: Boolean(raw["IsSupervised"]) } : {}),
+            status: "online",
+            lastSeenAt: new Date().toISOString(),
+          });
+        } catch {
+          // ignore
+        }
+      }
+
       if (ack.status === "Acknowledged") {
         bus.publish({
           type: "mdm.command.succeeded",
           command,
           commandUUID: ack.command_uuid,
+          deviceUUID: ack.udid,
         });
       } else if (ack.status === "Error") {
         let parsed: Record<string, unknown> = {};
         if (ack.raw_payload)
-            parsed = client.decodeBase64Plist(ack.raw_payload);
+          parsed = client.decodeBase64Plist(ack.raw_payload);
         getLogger().error("[webhookServer] MicroMDM báo lỗi khi thực thi command trên thiết bị", {
+          udid: ack.udid,
           commandUUID: ack.command_uuid,
           raw: parsed,
         });
@@ -219,6 +280,7 @@ async function handleWebhookBody(
           type: "mdm.command.failed",
           command,
           commandUUID: ack.command_uuid,
+          deviceUUID: ack.udid,
           error: `MicroMDM báo lỗi khi thực thi command trên thiết bị: ${JSON.stringify(parsed)}`,
         });
       }

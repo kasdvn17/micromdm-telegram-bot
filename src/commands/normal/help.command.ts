@@ -54,6 +54,17 @@ Quy ước: lệnh Emergency/Two-Factor đặt password ngay sau tên lệnh:
 /refresh [full|<thời gian>] — đồng bộ submission mới nhất (tự động add & AC bài >=1600), hoặc full để quét lại toàn bộ
 /status — dashboard Focus, task, gate, break và thiết bị
 /menu — dashboard có nút bấm
+/devices — liệt kê thiết bị, xem primary/target
+/device list — xem danh sách thiết bị
+/device primary <1|2|tên|udid> — chọn thiết bị làm Primary
+/device target <1|2|tên|udid> — đổi target sang thiết bị khác
+/device rename <1|2> <tên mới> — đổi tên hiển thị thiết bị
+/device add <udid> [tên] — thêm thiết bị thủ công
+/device remove <1|2> — xóa thiết bị
+/device sync — đồng bộ danh sách từ MicroMDM
+/device info [target] — xem chi tiết thiết bị
+/target [1|2|tên|udid|primary] — xem hoặc chuyển nhanh target device
+(Mẹo: có thể thêm flag \`--target <1|2|tên>\` vào bất kỳ lệnh nào, vd: \`/lock <pass> --target 2\`)
 
 /notify on|off|test
 /quote on|off|now|status
