@@ -112,7 +112,7 @@ Quy ước: lệnh Emergency/Two-Factor đặt password ngay sau tên lệnh:
 /manageapp <password> enable|add <bundleId>|list
 
 /profiles <password>
-/installprofile <password> <filename>
+/installprofile <password> [filename] — gửi file/reply file profile hoặc chỉ định file trong data/
 /removeprofile <password> <profileIdentifier>
 
 ── TWO-FACTOR ──

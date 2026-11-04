@@ -4,11 +4,19 @@ export enum AuthTier {
   TwoFactor = "two-factor",
 }
 
+export interface UploadedDocument {
+  fileId: string;
+  fileName: string;
+  mimeType?: string;
+  fileSize?: number;
+}
+
 export interface IncomingMessageContext {
   telegramId: number;
   telegramUsername?: string;
   chatId: number;
   rawText: string;
+  document?: UploadedDocument;
 }
 
 export interface ParsedCommand {
@@ -48,6 +56,10 @@ export interface CommandContext {
   progress(text: string): Promise<void>;
   /** UDID của thiết bị đang được target (nếu có override qua --device / --target hoặc từ session) */
   targetUDID?: string;
+  /** File document đính kèm hoặc được reply nếu có */
+  document?: UploadedDocument;
+  /** Tải nội dung file đính kèm dưới dạng Buffer */
+  downloadDocument?: () => Promise<{ buffer: Buffer; fileName: string }>;
 }
 
 export type CommandResponse =

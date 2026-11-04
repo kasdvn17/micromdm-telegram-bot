@@ -289,7 +289,7 @@ async function main(): Promise<void> {
     createRemoveAppCommand(appManagementService),
     createListProfilesCommand(deviceCommands),
     createRemoveProfileCommand(deviceCommands),
-    createInstallProfileCommand(deviceCommands, config.constants.dataDir),
+    createInstallProfileCommand(deviceCommands, config.constants.dataDir, deviceManager),
     createHelpCommand(),
   ];
 

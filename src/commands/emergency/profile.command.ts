@@ -1,7 +1,8 @@
 import { AuthTier, CommandContext, CommandDefinition } from "../../types/command.types";
 import { DeviceCommands } from "../../micromdm/deviceCommands";
-import { loadProfileFileBase64 } from "../../profiles/fileProfile";
+import { loadProfileFileBase64, saveUploadedProfile } from "../../profiles/fileProfile";
 import { BOT_MANAGED_PROFILE_IDENTIFIERS } from "../../profiles/profileBuilder";
+import { DeviceManagerServiceApi } from "../../services/deviceManagerService";
 import { ValidationError } from "../../utils/errors";
 
 /**
@@ -37,26 +38,66 @@ export function createListProfilesCommand(deviceCommands: DeviceCommands): Comma
 }
 
 /**
- * /installprofile <password> <filename>
- * Tìm `filename` trong thư mục data/ (vd "default.plist" -> data/default.plist)
- * rồi cài trực tiếp qua InstallProfile - dùng cho profile tuỳ ý bạn tự
- * chuẩn bị sẵn (không giới hạn ở default.plist/Focus/Blacklist).
+ * /installprofile <password> [filename]
+ * Hỗ trợ 2 cách:
+ *  1. Upload trực tiếp file profile (.mobileconfig/.plist) lên Telegram kèm caption
+ *     hoặc reply vào file đó bằng lệnh /installprofile <password>.
+ *  2. Tìm `filename` trong thư mục data/ hoặc data/profiles/ để cài file có sẵn trên server.
  */
 export function createInstallProfileCommand(
   deviceCommands: DeviceCommands,
-  dataDir: string
+  dataDir: string,
+  deviceManager?: DeviceManagerServiceApi
 ): CommandDefinition {
   return {
     name: "installprofile",
     tier: AuthTier.Emergency,
     handler: async (ctx: CommandContext): Promise<string> => {
+      const getPrefix = () => {
+        const target = deviceManager?.getActiveTargetDevice();
+        return target ? `[${target.name}] ` : "";
+      };
+
+      // Cách 1: Người dùng đính kèm file hoặc reply vào file
+      if (ctx.document && ctx.downloadDocument) {
+        await ctx.progress("📥 Đang tải file profile từ Telegram...");
+        const { buffer, fileName } = await ctx.downloadDocument();
+
+        if (buffer.length === 0) {
+          throw new ValidationError("File profile rỗng.");
+        }
+        if (buffer.length > 10 * 1024 * 1024) {
+          throw new ValidationError("File quá lớn (tối đa 10MB).");
+        }
+
+        const customName = ctx.effectiveArgs[0];
+        const chosenName = customName || fileName || "uploaded_profile.mobileconfig";
+        const { cleanFileName } = saveUploadedProfile(dataDir, chosenName, buffer);
+
+        await ctx.progress("📤 Đang gửi lệnh cài profile tới thiết bị...");
+        const base64 = buffer.toString("base64");
+        await deviceCommands.installProfile(base64);
+
+        return `📄 ${getPrefix()}Đã nhận file và gửi lệnh cài đặt profile "${cleanFileName}" (lưu tại data/profiles/${cleanFileName}).`;
+      }
+
+      // Cách 2: Cài file có sẵn trong data/
       const [filename] = ctx.effectiveArgs;
       if (!filename) {
-        throw new ValidationError("Cú pháp: /installprofile <password> <filename>\nVd: /installprofile <password> default.plist");
+        throw new ValidationError(
+          "📄 Cú pháp /installprofile:\n" +
+            "1. Gửi file (.mobileconfig / .plist) kèm caption:\n" +
+            "   `/installprofile <password> [tên-lưu] [--target <1|2|tên>]`\n" +
+            "2. Hoặc reply vào một file profile với nội dung:\n" +
+            "   `/installprofile <password> [tên-lưu] [--target <1|2|tên>]`\n" +
+            "3. Hoặc cài file có sẵn trên máy chủ (thư mục data/):\n" +
+            "   `/installprofile <password> <tên-file>`"
+        );
       }
+
       const base64 = loadProfileFileBase64(dataDir, filename);
       await deviceCommands.installProfile(base64);
-      return `📄 Đã gửi lệnh cài profile từ file "data/${filename}".`;
+      return `📄 ${getPrefix()}Đã gửi lệnh cài profile từ file "${filename}".`;
     },
   };
 }

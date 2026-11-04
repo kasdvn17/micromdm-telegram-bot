@@ -2,9 +2,29 @@ import fs from "fs";
 import path from "path";
 import { ValidationError } from "../utils/errors";
 
+export function saveUploadedProfile(
+  dataDir: string,
+  fileName: string,
+  buffer: Buffer
+): { savedPath: string; cleanFileName: string } {
+  const profilesDir = path.resolve(dataDir, "profiles");
+  if (!fs.existsSync(profilesDir)) {
+    fs.mkdirSync(profilesDir, { recursive: true });
+  }
+
+  // Sanitize filename tránh path traversal và ký tự lạ
+  const base = path.basename(fileName).replace(/[^\w.-]/g, "_") || "uploaded_profile.mobileconfig";
+  const ext = path.extname(base).toLowerCase();
+  const cleanFileName = ext ? base : `${base}.mobileconfig`;
+  const savedPath = path.join(profilesDir, cleanFileName);
+
+  fs.writeFileSync(savedPath, buffer);
+  return { savedPath, cleanFileName };
+}
+
 /**
  * Đọc 1 file profile (.plist/.mobileconfig) theo TÊN FILE trong thư mục
- * `dataDir` (vd /installprofile default.plist -> tìm data/default.plist),
+ * `dataDir` hoặc `dataDir/profiles` (vd /installprofile default.plist),
  * trả về base64 sẵn sàng gửi InstallProfile.
  *
  * Chặn path traversal (vd "../../etc/passwd" hoặc absolute path) bằng cách
@@ -18,7 +38,14 @@ export function loadProfileFileBase64(dataDir: string, filename: string): string
   }
 
   const resolvedDataDir = path.resolve(dataDir);
-  const resolvedFilePath = path.resolve(resolvedDataDir, trimmed);
+  let resolvedFilePath = path.resolve(resolvedDataDir, trimmed);
+
+  if (!fs.existsSync(resolvedFilePath) || !fs.statSync(resolvedFilePath).isFile()) {
+    const inProfiles = path.resolve(resolvedDataDir, "profiles", trimmed);
+    if (fs.existsSync(inProfiles) && fs.statSync(inProfiles).isFile()) {
+      resolvedFilePath = inProfiles;
+    }
+  }
 
   if (
     resolvedFilePath !== resolvedDataDir &&
@@ -31,10 +58,10 @@ export function loadProfileFileBase64(dataDir: string, filename: string): string
 
   if (!fs.existsSync(resolvedFilePath) || !fs.statSync(resolvedFilePath).isFile()) {
     throw new ValidationError(
-      `Không tìm thấy file "${trimmed}" trong thư mục data/. Kiểm tra lại tên file (phân biệt hoa/thường).`
+      `Không tìm thấy file "${trimmed}" trong thư mục data/ hoặc data/profiles/. Kiểm tra lại tên file (phân biệt hoa/thường).`
     );
   }
 
-  const xml = fs.readFileSync(resolvedFilePath, "utf-8");
-  return Buffer.from(xml, "utf-8").toString("base64");
+  const buf = fs.readFileSync(resolvedFilePath);
+  return buf.toString("base64");
 }

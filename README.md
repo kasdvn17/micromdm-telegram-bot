@@ -162,7 +162,7 @@ Các lệnh:
 /manageapp <password> enable|add <bundleId>|list
 
 /profiles <password>
-/installprofile <password> <filename>
+/installprofile <password> [filename] # Gửi kèm file .mobileconfig/.plist hoặc file trong data/
 /removeprofile <password> <profileIdentifier>
 ```
 

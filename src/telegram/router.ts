@@ -1,10 +1,12 @@
 import TelegramBot from "node-telegram-bot-api";
+import fetch from "node-fetch";
 import {
   AuthTier,
   CommandContext,
   CommandDefinition,
   IncomingMessageContext,
   ParsedCommand,
+  UploadedDocument,
 } from "../types/command.types";
 import { createAuthChecker } from "./authMiddleware";
 import { EmergencyAuthServiceApi } from "../services/emergencyAuthService";
@@ -81,8 +83,9 @@ export function createRouter(
   const failedPasswordAttempts = new Map<number, number[]>();
 
   return async function handleMessage(bot: TelegramBot, msg: TelegramBot.Message): Promise<void> {
-    if (!msg.text) return;
-    const parsed = parseMessage(msg.text);
+    const text = msg.text ?? msg.caption;
+    if (!text) return;
+    const parsed = parseMessage(text);
     if (!parsed) return;
 
     const definition = commandMap.get(parsed.name);
@@ -92,17 +95,48 @@ export function createRouter(
       return;
     }
 
+    const targetDoc = msg.document ?? msg.reply_to_message?.document;
+    const uploadedDoc: UploadedDocument | undefined = targetDoc
+      ? {
+          fileId: targetDoc.file_id,
+          fileName: targetDoc.file_name ?? "profile.mobileconfig",
+          mimeType: targetDoc.mime_type,
+          fileSize: targetDoc.file_size,
+        }
+      : undefined;
+
     const message: IncomingMessageContext = {
       telegramId: msg.from?.id ?? 0,
       telegramUsername: msg.from?.username,
       chatId: msg.chat.id,
-      rawText: msg.text,
+      rawText: text,
+      document: uploadedDoc,
     };
 
     const needsPassword = definition.tier !== AuthTier.Normal;
     const containsSecret = needsPassword || parsed.name === "auth";
     const passwordProvided = needsPassword ? parsed.args[0] : undefined;
     const effectiveArgs = needsPassword ? parsed.args.slice(1) : parsed.args;
+
+    // Tải trước file nếu document đính kèm trực tiếp trên tin nhắn chứa mật khẩu (sắp bị xóa)
+    let preloadedDoc: { buffer: Buffer; fileName: string } | null = null;
+    if (msg.document && containsSecret) {
+      try {
+        const fileLink = await bot.getFileLink(msg.document.file_id);
+        const res = await fetch(fileLink);
+        if (res.ok) {
+          const arrayBuffer = await res.arrayBuffer();
+          preloadedDoc = {
+            buffer: Buffer.from(arrayBuffer),
+            fileName: msg.document.file_name ?? "profile.mobileconfig",
+          };
+        }
+      } catch (err) {
+        getLogger().warn("[router] Tải trước document thất bại", {
+          error: (err as Error).message,
+        });
+      }
+    }
 
     if (containsSecret) {
       await bot.deleteMessage(message.chatId, msg.message_id).catch(() => undefined);
@@ -182,11 +216,30 @@ export function createRouter(
       }
     }
 
+    const downloadDocument = async (): Promise<{ buffer: Buffer; fileName: string }> => {
+      if (preloadedDoc) return preloadedDoc;
+      if (targetDoc) {
+        const fileLink = await bot.getFileLink(targetDoc.file_id);
+        const res = await fetch(fileLink);
+        if (!res.ok) {
+          throw new Error(`Tải file từ Telegram thất bại (HTTP ${res.status})`);
+        }
+        const arrayBuffer = await res.arrayBuffer();
+        return {
+          buffer: Buffer.from(arrayBuffer),
+          fileName: targetDoc.file_name ?? "profile.mobileconfig",
+        };
+      }
+      throw new Error("Không tìm thấy file nào được đính kèm hoặc reply.");
+    };
+
     const ctx: CommandContext = {
       message,
       parsed: { ...parsed, subcommand: finalArgs[0] },
       effectiveArgs: finalArgs,
       targetUDID,
+      document: uploadedDoc,
+      downloadDocument: targetDoc ? downloadDocument : undefined,
       progress: async () => undefined,
     };
 
