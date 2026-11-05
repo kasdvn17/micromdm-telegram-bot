@@ -271,17 +271,21 @@ export class MicroMdmClient {
   }
 
   /**
-   * Lấy danh sách thiết bị đã enroll từ MicroMDM qua GET /v1/devices.
+   * Lấy danh sách thiết bị đã enroll từ MicroMDM qua POST /v1/devices.
    * Nếu MicroMDM không trả về danh sách hợp lệ hoặc lỗi, fallback trả về mảng rỗng.
    */
   async getDevices(): Promise<MicroMdmDeviceSummary[]> {
     try {
       const res = await fetch(`${this.options.baseUrl}/v1/devices`, {
-        method: "GET",
-        headers: this.authHeaders(),
+        method: "POST",
+        headers: {
+          ...this.authHeaders(),
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({}),
       });
       if (!res.ok) {
-        getLogger().warn("[micromdm] GET /v1/devices trả status", { status: res.status });
+        getLogger().warn("[micromdm] POST /v1/devices trả status", { status: res.status });
         return [];
       }
       const data = (await res.json()) as
