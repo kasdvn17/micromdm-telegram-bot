@@ -1,0 +1,33 @@
+{
+  "primaryUdid": "00008110-000C098921B9401E",
+  "activeTargetUdid": "09910130-40F1-5237-8AE4-94850C0FC535",
+  "devices": [
+    {
+      "udid": "00008110-000C098921B9401E",
+      "name": "Blam",
+      "isPrimary": true,
+      "status": "online",
+      "enrolledAt": "2026-11-05T10:17:09.113Z",
+      "lastSeenAt": "2026-11-05T10:42:26.728Z",
+      "model": "MPVN3VN",
+      "osVersion": "27.2",
+      "serialNumber": "TTVT4R925M",
+      "batteryLevel": 0.68,
+      "isSupervised": true
+    },
+    {
+      "udid": "09910130-40F1-5237-8AE4-94850C0FC535",
+      "name": "Nguyễn’s MacBook Air",
+      "isPrimary": false,
+      "status": "online",
+      "enrolledAt": "2026-11-04T18:04:25.932Z",
+      "lastSeenAt": "2026-11-05T10:42:28.681Z",
+      "model": "MacBookAir10,1",
+      "modelName": "MacBook Air",
+      "osVersion": "15.8",
+      "serialNumber": "FVFGC3HTQ6L8",
+      "batteryLevel": 1,
+      "isSupervised": true
+    }
+  ]
+}

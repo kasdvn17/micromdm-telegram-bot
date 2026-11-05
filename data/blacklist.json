@@ -1,3 +1,9 @@
 {
-  "bundleIds": []
+  "bundleIds": [
+    "app.nicegram",
+    "com.atebits.Tweetie2",
+    "sotwe.con",
+    "com.fivemobile.wattpad",
+    "com.zhiliaoapp.musically"
+  ]
 }

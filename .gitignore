@@ -19,4 +19,8 @@ data/logs/bot-latest.log
 data/logs
 
 data/history.json
+data/*.bak
+data/laps-state.json*
+data/backup_before_restore*
+
 

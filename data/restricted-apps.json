@@ -1,10 +1,10 @@
 {
-    "bundleIds": [
-        "com.facebook.Facebook",
-        "com.burbn.instagram",
-        "com.zhiliaoapp.musically",
-        "com.ss.iphone.ugc.Ame",
-        "com.burbn.barcelona",
-        "com.JindoBlu.OfflineGamesIOS"
-    ]
+  "bundleIds": [
+    "com.facebook.Facebook",
+    "com.burbn.instagram",
+    "com.zhiliaoapp.musically",
+    "com.ss.iphone.ugc.Ame",
+    "com.burbn.barcelona",
+    "com.JindoBlu.OfflineGamesIOS"
+  ]
 }
