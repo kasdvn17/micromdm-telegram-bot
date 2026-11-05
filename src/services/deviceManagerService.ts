@@ -7,6 +7,7 @@ import { MicroMdmClient } from "../micromdm/client";
 
 export interface DeviceManagerServiceApi {
   listDevices(): DeviceRecord[];
+  getMacDevices(lapsSerialNumber?: string, macDeviceUUID?: string): DeviceRecord[];
   getPrimaryDevice(): DeviceRecord | undefined;
   getTargetDevice(): DeviceRecord | undefined;
   getActiveTargetDevice(): DeviceRecord | undefined;
@@ -22,6 +23,37 @@ export interface DeviceManagerServiceApi {
   removeDevice(query: string): DeviceRecord;
   syncWithMicroMdm(client: MicroMdmClient): Promise<DeviceRecord[]>;
   runWithTarget<T>(udid: string, fn: () => Promise<T>): Promise<T>;
+}
+
+/**
+ * Nhận diện thiết bị macOS dựa trên model, tên máy, osVersion, serialNumber (từ LAPS) hoặc macDeviceUUID
+ */
+export function isMacDevice(
+  device: Pick<DeviceRecord, "model" | "modelName" | "name" | "osVersion" | "serialNumber" | "udid">,
+  lapsSerialNumber?: string,
+  macDeviceUUID?: string
+): boolean {
+  if (macDeviceUUID && device.udid && device.udid.toLowerCase() === macDeviceUUID.toLowerCase()) {
+    return true;
+  }
+  if (lapsSerialNumber && device.serialNumber && device.serialNumber.toLowerCase() === lapsSerialNumber.toLowerCase()) {
+    return true;
+  }
+  const model = (device.model || "").toLowerCase();
+  const modelName = (device.modelName || "").toLowerCase();
+  const name = (device.name || "").toLowerCase();
+  const osVersion = (device.osVersion || "").toLowerCase();
+
+  if (model.includes("mac") || modelName.includes("mac")) {
+    return true;
+  }
+  if (name.includes("mac") || name.includes("macbook") || name.includes("imac")) {
+    return true;
+  }
+  if (osVersion.includes("macos") || osVersion.includes("osx") || osVersion.includes("darwin")) {
+    return true;
+  }
+  return false;
 }
 
 export function createDeviceManagerService(
@@ -309,8 +341,13 @@ export function createDeviceManagerService(
     return targetStorage.run(udid, fn);
   }
 
+  function getMacDevices(lapsSerialNumber?: string, macDeviceUUID?: string): DeviceRecord[] {
+    return state.devices.filter((d) => isMacDevice(d, lapsSerialNumber, macDeviceUUID));
+  }
+
   return {
     listDevices: () => [...state.devices],
+    getMacDevices,
     getPrimaryDevice,
     getTargetDevice,
     getActiveTargetDevice,

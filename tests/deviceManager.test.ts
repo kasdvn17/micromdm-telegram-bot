@@ -10,7 +10,6 @@ import { AuthTier, CommandDefinition } from "../src/types/command.types";
 import { EventBus } from "../src/events/eventBus";
 import { EmergencyAuthServiceApi } from "../src/services/emergencyAuthService";
 import { MicroMdmClient } from "../src/micromdm/client";
-import { startWebhookServer } from "../src/enrollment/webhookServer";
 
 function createTempDir(): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), "device-test-"));

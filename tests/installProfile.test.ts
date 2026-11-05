@@ -7,7 +7,6 @@ import { saveUploadedProfile, loadProfileFileBase64 } from "../src/profiles/file
 import { createInstallProfileCommand } from "../src/commands/emergency/profile.command";
 import { createDeviceManagerService } from "../src/services/deviceManagerService";
 import { DeviceCommands } from "../src/micromdm/deviceCommands";
-import { MicroMdmClient } from "../src/micromdm/client";
 import { createRouter } from "../src/telegram/router";
 import { CommandDefinition, AuthTier } from "../src/types/command.types";
 import { EventBus } from "../src/events/eventBus";

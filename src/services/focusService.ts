@@ -4,12 +4,17 @@ import { EventBus } from "../events/eventBus";
 import { SafeModeServiceApi } from "./safeModeService";
 import {
   buildRestrictedAppsProfile,
+  buildMacOsFocusProfile,
   FOCUS_PROFILE_IDENTIFIER,
 } from "../profiles/profileBuilder";
 import { loadFocusBundleIds, addFocusBundleId, removeFocusBundleId, loadFocusWebsites, addFocusWebsite, removeFocusWebsite } from "../profiles/restrictedApps";
 import { ValidationError } from "../utils/errors";
 import { formatDuration } from "../utils/time";
 import { FocusSchedule, SleepUnlockStatus } from "../types/scheduler.types";
+import { DeviceManagerServiceApi, isMacDevice } from "./deviceManagerService";
+import { LapsServiceApi } from "./lapsService";
+import { getLogger } from "../utils/logger";
+import { DeviceRecord } from "../types/micromdm.types";
 
 export interface FocusDisableResult {
   sleepModeDisabled: boolean;
@@ -98,7 +103,10 @@ export function createFocusService(
   restrictedAppsFilePath: string,
   focusWebsitesFilePath: string,
   safeModeService: SafeModeServiceApi,
-  bus: EventBus
+  bus: EventBus,
+  deviceManager?: DeviceManagerServiceApi,
+  lapsService?: LapsServiceApi,
+  macDeviceUUID?: string
 ): FocusServiceApi {
   let manuallyActive = false; // bật không kèm duration (không có endAt)
 
@@ -109,28 +117,112 @@ export function createFocusService(
     ...(scheduler.isWithinSleepWindow() ? ["sleep"] : []),
   ];
 
+  const getMacDevicesToTarget = (): DeviceRecord[] => {
+    if (!deviceManager) return [];
+    const lapsSerial = lapsService?.getStatus().serialNumber;
+    return deviceManager.getMacDevices(lapsSerial, macDeviceUUID);
+  };
+
   const installFocusProfile = async (
     reason = "state-change",
     pendingOwner?: "manual" | "duration"
   ): Promise<void> => {
     const bundleIds = loadFocusBundleIds(restrictedAppsFilePath);
     const websites = loadFocusWebsites(focusWebsitesFilePath);
-    const profile = buildRestrictedAppsProfile({
-      identifier: FOCUS_PROFILE_IDENTIFIER,
-      displayName: "Focus Mode",
-      restrictedBundleIds: bundleIds,
-      blockedWebsites: websites,
-    });
-    await deviceCommands.installProfile(profile, FOCUS_PROFILE_IDENTIFIER);
+
+    // 1. Cài đặt profile cho thiết bị target hiện tại
+    const activeTarget = deviceManager?.getActiveTargetDevice();
+    const isTargetMac = activeTarget
+      ? isMacDevice(activeTarget, lapsService?.getStatus().serialNumber, macDeviceUUID)
+      : false;
+
+    if (isTargetMac) {
+      // Nếu target chính là máy Mac: chỉ cài web filter (không chặn app)
+      if (websites.length > 0) {
+        const macProfile = buildMacOsFocusProfile({
+          identifier: FOCUS_PROFILE_IDENTIFIER,
+          displayName: "Focus Mode",
+          blockedWebsites: websites,
+        });
+        await deviceCommands.installProfile(macProfile, FOCUS_PROFILE_IDENTIFIER);
+      } else {
+        await deviceCommands.removeProfile(FOCUS_PROFILE_IDENTIFIER).catch(() => undefined);
+      }
+    } else {
+      // Target là iOS (iPhone/iPad): cài profile chặn cả app + website
+      const profile = buildRestrictedAppsProfile({
+        identifier: FOCUS_PROFILE_IDENTIFIER,
+        displayName: "Focus Mode",
+        restrictedBundleIds: bundleIds,
+        blockedWebsites: websites,
+      });
+      await deviceCommands.installProfile(profile, FOCUS_PROFILE_IDENTIFIER);
+    }
     bus.publish({ type: "profile.installed", identifier: FOCUS_PROFILE_IDENTIFIER });
+
+    // 2. ĐỒNG THỜI cài đặt/cập nhật web filter trên tất cả thiết bị macOS
+    const macDevices = getMacDevicesToTarget();
+    for (const macDev of macDevices) {
+      if (activeTarget && macDev.udid.toLowerCase() === activeTarget.udid.toLowerCase()) {
+        continue;
+      }
+      try {
+        if (websites.length > 0) {
+          const macProfile = buildMacOsFocusProfile({
+            identifier: FOCUS_PROFILE_IDENTIFIER,
+            displayName: "Focus Mode",
+            blockedWebsites: websites,
+          });
+          getLogger().info("[focusService] Đang đẩy profile Focus web filter xuống macOS", {
+            udid: macDev.udid,
+            name: macDev.name,
+            websiteCount: websites.length,
+          });
+          await deviceCommands.forDevice(macDev.udid).installProfile(macProfile, FOCUS_PROFILE_IDENTIFIER);
+        } else {
+          await deviceCommands.forDevice(macDev.udid).removeProfile(FOCUS_PROFILE_IDENTIFIER).catch(() => undefined);
+        }
+      } catch (err) {
+        getLogger().warn("[focusService] Không thể cài profile Focus xuống macOS (máy có thể đang offline/sleep)", {
+          udid: macDev.udid,
+          name: macDev.name,
+          error: (err as Error).message,
+        });
+      }
+    }
+
     const owners = currentOwners();
     if (pendingOwner && !owners.includes(pendingOwner)) owners.push(pendingOwner);
     bus.publish({ type: "focus.profile.decision", action: "install", reason, owners });
   };
 
   const removeFocusProfile = async (reason = "state-change"): Promise<void> => {
+    // 1. Gỡ profile khỏi thiết bị target hiện tại
     await deviceCommands.removeProfile(FOCUS_PROFILE_IDENTIFIER);
     bus.publish({ type: "profile.removed", identifier: FOCUS_PROFILE_IDENTIFIER });
+
+    // 2. ĐỒNG THỜI gỡ profile khỏi tất cả thiết bị macOS
+    const activeTarget = deviceManager?.getActiveTargetDevice();
+    const macDevices = getMacDevicesToTarget();
+    for (const macDev of macDevices) {
+      if (activeTarget && macDev.udid.toLowerCase() === activeTarget.udid.toLowerCase()) {
+        continue;
+      }
+      try {
+        getLogger().info("[focusService] Đang gỡ profile Focus khỏi macOS", {
+          udid: macDev.udid,
+          name: macDev.name,
+        });
+        await deviceCommands.forDevice(macDev.udid).removeProfile(FOCUS_PROFILE_IDENTIFIER);
+      } catch (err) {
+        getLogger().warn("[focusService] Không thể gỡ profile Focus khỏi macOS (máy có thể đang offline/sleep)", {
+          udid: macDev.udid,
+          name: macDev.name,
+          error: (err as Error).message,
+        });
+      }
+    }
+
     bus.publish({ type: "focus.profile.decision", action: "remove", reason, owners: currentOwners() });
   };
 

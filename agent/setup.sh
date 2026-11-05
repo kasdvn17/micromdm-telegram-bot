@@ -35,7 +35,7 @@ if [[ -f "$ENV_FILE" ]]; then
     fi
 fi
 
-SERVER_URL="http://localhost:$SERVER_PORT"
+SERVER_URL="http://192.168.1.96:$SERVER_PORT"
 
 echo "• Tài khoản Admin mới sẽ quản lý: $ADMIN_USER"
 echo "• Tài khoản người dùng sẽ hạ quyền: $TARGET_USER"
@@ -60,14 +60,23 @@ else
     read -rsp "Mật khẩu của $TARGET_USER: " TARGET_PASS
     echo ""
     
-    # Tạo user admin có SecureToken
-    sysadminctl -adminUser "$TARGET_USER" -adminPassword "$TARGET_PASS" \
+    # Tạo user admin có SecureToken (dùng IT Administrator để tránh trùng với root)
+    if sysadminctl -adminUser "$TARGET_USER" -adminPassword "$TARGET_PASS" \
         -addUser "$ADMIN_USER" \
-        -fullName "System Administrator" \
+        -fullName "IT Administrator" \
         -password "$INITIAL_PASSWORD" \
-        -admin
+        -admin; then
         
-    echo "✅ Đã tạo tài khoản [$ADMIN_USER] với quyền Admin và SecureToken thành công!"
+        if id "$ADMIN_USER" &>/dev/null; then
+            echo "✅ Đã tạo tài khoản [$ADMIN_USER] với quyền Admin và SecureToken thành công!"
+        else
+            echo "❌ Lỗi: sysadminctl báo hoàn tất nhưng tài khoản [$ADMIN_USER] không tồn tại!"
+            exit 1
+        fi
+    else
+        echo "❌ Lỗi: sysadminctl tạo tài khoản thất bại! Kiểm tra mật khẩu của [$TARGET_USER]."
+        exit 1
+    fi
 fi
 
 # 2. Lưu mật khẩu vào macOS System Keychain
@@ -76,6 +85,23 @@ security add-generic-password -U -s "LocalAdminLAPS" -a "$ADMIN_USER" -w "$INITI
 echo "✅ Đã lưu vào System Keychain an toàn."
 
 # 3. Tạo file cấu hình /etc/micromdm-agent.conf
+echo "📡 Đang kiểm tra kết nối tới Server LAPS ($SERVER_URL)..."
+TEST_CHECKIN=$(curl -s -k -X POST "$SERVER_URL/api/laps/checkin" \
+    -H "Authorization: Bearer $API_KEY" \
+    -H "Content-Type: application/json" \
+    -d "{\"serial\":\"TEST\",\"hostname\":\"$(hostname)\",\"adminUser\":\"$ADMIN_USER\",\"isTargetAdmin\":true,\"targetUser\":\"$TARGET_USER\",\"agentVersion\":\"1.1.0\"}" 2>/dev/null || echo "")
+
+if [[ -z "$TEST_CHECKIN" ]]; then
+    echo "⚠️ CẢNH BÁO: Không thể kết nối tới $SERVER_URL! Hãy đảm bảo bot server đang chạy và mở port."
+elif echo "$TEST_CHECKIN" | grep -q '"ok":true'; then
+    echo "✅ Kết nối Server và API Key hợp lệ!"
+elif echo "$TEST_CHECKIN" | grep -q "Unauthorized"; then
+    echo "❌ LỖI: Sai API Key hoặc Emergency Password! Server từ chối xác thực (Unauthorized)."
+    exit 1
+else
+    echo "⚠️ Phản hồi từ server: $TEST_CHECKIN"
+fi
+
 echo "📝 Đang ghi file cấu hình /etc/micromdm-agent.conf..."
 cat <<EOF > /etc/micromdm-agent.conf
 SERVER_URL="$SERVER_URL"

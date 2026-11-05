@@ -695,20 +695,17 @@ test("refresh automatically adds eligible problems (>=1600 AC) and skips low-rat
     };
     const cmd = createRefreshCommand(service, fakeFocus as any);
     const reply = await cmd.handler({
-      message: { telegramId: 43, role: "normal" } as any,
+      message: { telegramId: 43 } as any,
+      parsed: { name: "refresh", args: [] },
       effectiveArgs: [],
-      rawArgs: [],
-      args: [],
-      command: "refresh",
-      isOwner: false,
-      isEmergency: false,
       progress: async () => {},
     });
+    const replyText = typeof reply === "string" ? reply : reply.text;
 
-    assert.match(reply, /Tự động thêm/);
-    assert.match(reply, /6000A/);
-    assert.match(reply, /Bỏ qua 1 bài AC không đủ rating >= 1600/);
-    assert.match(reply, /6000B/);
+    assert.match(replyText, /Tự động thêm/);
+    assert.match(replyText, /6000A/);
+    assert.match(replyText, /Bỏ qua 1 bài AC không đủ rating >= 1600/);
+    assert.match(replyText, /6000B/);
   } finally {
     data.cleanup();
   }
@@ -749,13 +746,9 @@ test("refresh command validates arguments and supports duration syntax", async (
 
   // /refresh mặc định
   await cmd.handler({
-    message: { telegramId: 42, role: "normal" } as any,
+    message: { telegramId: 42 } as any,
+    parsed: { name: "refresh", args: [] },
     effectiveArgs: [],
-    rawArgs: [],
-    args: [],
-    command: "refresh",
-    isOwner: false,
-    isEmergency: false,
     progress: async () => {},
   });
   assert.equal(lastRefreshOptions.full, false);
@@ -763,26 +756,18 @@ test("refresh command validates arguments and supports duration syntax", async (
 
   // /refresh full
   await cmd.handler({
-    message: { telegramId: 42, role: "normal" } as any,
+    message: { telegramId: 42 } as any,
+    parsed: { name: "refresh", args: ["full"] },
     effectiveArgs: ["full"],
-    rawArgs: ["full"],
-    args: ["full"],
-    command: "refresh",
-    isOwner: false,
-    isEmergency: false,
     progress: async () => {},
   });
   assert.equal(lastRefreshOptions.full, true);
 
   // /refresh 12h
   await cmd.handler({
-    message: { telegramId: 42, role: "normal" } as any,
+    message: { telegramId: 42 } as any,
+    parsed: { name: "refresh", args: ["12h"] },
     effectiveArgs: ["12h"],
-    rawArgs: ["12h"],
-    args: ["12h"],
-    command: "refresh",
-    isOwner: false,
-    isEmergency: false,
     progress: async () => {},
   });
   assert.equal(lastRefreshOptions.full, false);
@@ -790,13 +775,9 @@ test("refresh command validates arguments and supports duration syntax", async (
 
   // /refresh 2d
   await cmd.handler({
-    message: { telegramId: 42, role: "normal" } as any,
+    message: { telegramId: 42 } as any,
+    parsed: { name: "refresh", args: ["2d"] },
     effectiveArgs: ["2d"],
-    rawArgs: ["2d"],
-    args: ["2d"],
-    command: "refresh",
-    isOwner: false,
-    isEmergency: false,
     progress: async () => {},
   });
   assert.equal(lastRefreshOptions.full, false);
@@ -806,13 +787,9 @@ test("refresh command validates arguments and supports duration syntax", async (
   await assert.rejects(
     () =>
       cmd.handler({
-        message: { telegramId: 42, role: "normal" } as any,
+        message: { telegramId: 42 } as any,
+        parsed: { name: "refresh", args: ["invalid"] },
         effectiveArgs: ["invalid"],
-        rawArgs: ["invalid"],
-        args: ["invalid"],
-        command: "refresh",
-        isOwner: false,
-        isEmergency: false,
         progress: async () => {},
       }),
     /Cú pháp: \/refresh/

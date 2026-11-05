@@ -118,6 +118,12 @@ async function main(): Promise<void> {
     config.constants.deviceUUID,
     "./data/seen-devices.json"
   );
+  // Tự động đồng bộ danh sách thiết bị từ MicroMDM lúc khởi động
+  deviceManager.syncWithMicroMdm(microMdmClient).catch((err) => {
+    logger.warn("[main] Không thể đồng bộ danh sách thiết bị từ MicroMDM khi khởi động", {
+      error: (err as Error).message,
+    });
+  });
   const deviceCommands = new DeviceCommands(
     microMdmClient,
     () => deviceManager.getActiveTargetUDID()
@@ -189,6 +195,12 @@ async function main(): Promise<void> {
     }
   );
 
+  const lapsService = createLapsService(
+    config.constants.lapsStateFilePath,
+    config.secrets.lapsApiKey,
+    bus
+  );
+
   const safeModeService = createSafeModeService(
     deviceCommands,
     config.constants.sensitiveAppsFilePath,
@@ -200,7 +212,10 @@ async function main(): Promise<void> {
     config.constants.restrictedAppsFilePath,
     config.constants.focusWebsitesFilePath,
     safeModeService,
-    bus
+    bus,
+    deviceManager,
+    lapsService,
+    config.constants.macDeviceUUID
   );
   focusServiceRef = focusService;
 
@@ -235,12 +250,6 @@ async function main(): Promise<void> {
     config.constants.codeforcesHandle,
     undefined,
     { timeZone: config.constants.timeZone }
-  );
-
-  const lapsService = createLapsService(
-    config.constants.lapsStateFilePath,
-    config.secrets.lapsApiKey,
-    bus
   );
 
   // 6. Event subscribers

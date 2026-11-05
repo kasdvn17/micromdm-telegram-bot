@@ -16,6 +16,9 @@ export interface AppConstants {
   /** UDID của chiếc iPhone duy nhất hoặc mặc định ban đầu mà bot điều khiển */
   deviceUUID: string;
 
+  /** UDID của máy Mac (nếu muốn chỉ định rõ, ngoài việc bot tự động nhận diện từ MicroMDM/LAPS) */
+  macDeviceUUID?: string;
+
   /** Đường dẫn file JSON lưu danh sách thiết bị quản lý (devices.json) */
   devicesFilePath: string;
 
@@ -133,6 +136,7 @@ export function loadConstants(env: NodeJS.ProcessEnv = process.env): AppConstant
     dataDir: DATA_DIR,
     timeZone,
     deviceUUID,
+    macDeviceUUID: env.MAC_DEVICE_UUID?.trim() || env.MAC_UDID?.trim() || undefined,
     devicesFilePath:
       env.DEVICES_FILE_PATH?.trim() || path.join(DATA_DIR, "devices.json"),
     deviceInfoPollIntervalMs: parseIntEnv(

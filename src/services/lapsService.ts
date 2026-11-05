@@ -109,16 +109,16 @@ export function createLapsService(
         error: payload.error,
       });
 
-      if (payload.type === "rotate_result" || payload.type === "periodic_rotate") {
+      if (payload.type === "rotate_result" || payload.type === "periodic_rotate" || payload.type === "initial_password") {
         if (payload.success && payload.newPassword) {
           state.currentPassword = payload.newPassword;
           state.lastRotatedAt = now;
-          addHistory(state, "rotate_password", `Mật khẩu đã được xoay thành công (${payload.type})`);
+          addHistory(state, "rotate_password", `Mật khẩu đã được cập nhật thành công (${payload.type})`);
           bus.publish({
             type: "device.checkin",
             deviceUUID: state.serialNumber ?? "local-mac",
             requestType: "LapsRotate",
-            details: { message: `🔐 LAPS: Mật khẩu admin [${state.adminUser}] đã xoay thành công lúc ${now}` },
+            details: { message: `🔐 LAPS: Mật khẩu admin [${state.adminUser}] đã cập nhật lúc ${now}` },
           });
         } else {
           addHistory(state, "rotate_password_failed", payload.error ?? "Lỗi không xác định");

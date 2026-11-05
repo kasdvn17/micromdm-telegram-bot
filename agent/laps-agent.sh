@@ -12,7 +12,7 @@ if [[ -f "$CONF_FILE" ]]; then
     source "$CONF_FILE"
 fi
 
-SERVER_URL="${SERVER_URL:-http://localhost:6364}"
+SERVER_URL="${SERVER_URL:-http://192.168.1.96:6364}"
 API_KEY="${API_KEY:-}"
 ADMIN_USER="${ADMIN_USER:-sysadmin}"
 TARGET_USER="${TARGET_USER:-blamm01}"
@@ -86,6 +86,27 @@ if [[ -z "$CHECKIN_RESP" ]]; then
     exit 0
 fi
 
+if echo "$CHECKIN_RESP" | grep -q '"error"'; then
+    log "LỖI từ server LAPS: $CHECKIN_RESP"
+    exit 0
+fi
+
+log "Check-in thành công tới $SERVER_URL (blamm01 is admin: $IS_ADMIN)"
+
+# 3.1. Báo cáo mật khẩu khởi tạo nếu chưa từng báo
+INITIAL_REPORT_FLAG="$STATE_DIR/initial_reported.flag"
+if [[ ! -f "$INITIAL_REPORT_FLAG" ]]; then
+    CURR_PASS=$(security find-generic-password -s "$KEYCHAIN_SERVICE" -a "$ADMIN_USER" -w /Library/Keychains/System.keychain 2>/dev/null || echo "")
+    if [[ -n "$CURR_PASS" ]]; then
+        log "Gửi mật khẩu khởi tạo của $ADMIN_USER lên server..."
+        curl -s -k -X POST "$SERVER_URL/api/laps/report" \
+            -H "Authorization: Bearer $API_KEY" \
+            -H "Content-Type: application/json" \
+            -d "{\"type\":\"initial_password\",\"success\":true,\"newPassword\":\"$CURR_PASS\"}" >/dev/null || true
+        touch "$INITIAL_REPORT_FLAG"
+    fi
+fi
+
 # 4. Kiểm tra xem có cần xoay mật khẩu không
 DO_ROTATE=false
 ACTION_ID=""
@@ -126,8 +147,12 @@ if [[ "$DO_ROTATE" == "true" ]]; then
         NEW_PASS=$(openssl rand -base64 24 | tr -dc 'a-zA-Z0-9!@#$%&*=' | head -c 20)
         
         # Đổi mật khẩu qua sysadminctl để giữ SecureToken
-        if sysadminctl -adminUser "$ADMIN_USER" -adminPassword "$OLD_PASS" -resetPassword "$NEW_PASS" 2>/dev/null; then
-            log "Đã đổi mật khẩu $ADMIN_USER thành công."
+        ROTATE_OUTPUT=$(sysadminctl -adminUser "$ADMIN_USER" -adminPassword "$OLD_PASS" -resetPasswordFor "$ADMIN_USER" -newPassword "$NEW_PASS" 2>&1 || true)
+        log "sysadminctl output: $ROTATE_OUTPUT"
+        
+        # Xác thực chắc chắn mật khẩu đã được đổi thành công trên hệ thống
+        if dscl /Local/Default -authonly "$ADMIN_USER" "$NEW_PASS" >/dev/null 2>&1; then
+            log "Đã đổi và xác thực mật khẩu $ADMIN_USER thành công."
             
             # Cập nhật System Keychain
             security add-generic-password -U -s "$KEYCHAIN_SERVICE" -a "$ADMIN_USER" -w "$NEW_PASS" /Library/Keychains/System.keychain 2>/dev/null || true
@@ -139,11 +164,11 @@ if [[ "$DO_ROTATE" == "true" ]]; then
                 -H "Content-Type: application/json" \
                 -d "{\"actionId\":\"$ACTION_ID\",\"type\":\"rotate_result\",\"success\":true,\"newPassword\":\"$NEW_PASS\"}" >/dev/null || true
         else
-            log "LỖI: sysadminctl đổi mật khẩu thất bại."
+            log "LỖI: sysadminctl đổi mật khẩu thất bại hoặc xác thực không khớp!"
             curl -s -k -X POST "$SERVER_URL/api/laps/report" \
                 -H "Authorization: Bearer $API_KEY" \
                 -H "Content-Type: application/json" \
-                -d "{\"actionId\":\"$ACTION_ID\",\"type\":\"rotate_result\",\"success\":false,\"error\":\"sysadminctl failed\"}" >/dev/null || true
+                -d "{\"actionId\":\"$ACTION_ID\",\"type\":\"rotate_result\",\"success\":false,\"error\":\"Xác thực mật khẩu mới thất bại: $ROTATE_OUTPUT\"}" >/dev/null || true
         fi
     fi
 fi

@@ -48,7 +48,7 @@ export interface AgentCheckinResponse {
 
 export interface AgentReportPayload {
   actionId?: string;
-  type: "rotate_result" | "demote_result" | "elevate_result" | "exec_result" | "periodic_rotate";
+  type: "rotate_result" | "demote_result" | "elevate_result" | "exec_result" | "periodic_rotate" | "initial_password";
   success: boolean;
   newPassword?: string;
   output?: string;
