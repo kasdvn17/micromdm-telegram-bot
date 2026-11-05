@@ -18,6 +18,8 @@ export interface LapsServiceApi {
   requestElevate(username?: string, durationMinutes?: number): Promise<string>;
   requestExec(command: string): Promise<string>;
   cancelPendingAction(): Promise<boolean>;
+  setFocusState(active: boolean, websites: string[]): void;
+  getFocusState(): { active: boolean; websites: string[] };
   getStatus(): LapsState;
   getPassword(): { adminUser: string; password?: string; lastRotatedAt?: string };
 }
@@ -92,6 +94,10 @@ export function createLapsService(
         ok: true,
         action,
         serverTime: new Date().toISOString(),
+        focus: state.focusState ?? {
+          active: false,
+          websites: [],
+        },
       };
     },
 
@@ -222,6 +228,24 @@ export function createLapsService(
       state.pendingAction = null;
       saveState(state);
       return true;
+    },
+
+    setFocusState(active: boolean, websites: string[]): void {
+      const state = loadState();
+      state.focusState = {
+        active,
+        websites: Array.isArray(websites) ? [...websites] : [],
+      };
+      saveState(state);
+      getLogger().info("[lapsService] Đã cập nhật focusState cho agent", {
+        active,
+        websiteCount: state.focusState.websites.length,
+      });
+    },
+
+    getFocusState(): { active: boolean; websites: string[] } {
+      const state = loadState();
+      return state.focusState ?? { active: false, websites: [] };
     },
 
     getStatus(): LapsState {

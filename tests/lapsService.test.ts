@@ -77,6 +77,30 @@ test("LapsService handles checkin, action queue, and password reports", async ()
 
     const statusAfterDemote = lapsService.getStatus();
     assert.equal(statusAfterDemote.isBlamm01Admin, false);
+    // 6. Focus state synchronization
+    lapsService.setFocusState(true, ["x.com", "tiktok.com"]);
+    const focusCheckinResp = lapsService.handleCheckin(apiKey, {
+      serial: "C02TESTSERIAL",
+      hostname: "MacBook-Pro",
+      adminUser: "sysadmin",
+      isTargetAdmin: false,
+      targetUser: "blamm01",
+      agentVersion: "1.1.0",
+    });
+    assert.equal(focusCheckinResp.focus?.active, true);
+    assert.deepEqual(focusCheckinResp.focus?.websites, ["x.com", "tiktok.com"]);
+
+    lapsService.setFocusState(false, []);
+    const focusOffResp = lapsService.handleCheckin(apiKey, {
+      serial: "C02TESTSERIAL",
+      hostname: "MacBook-Pro",
+      adminUser: "sysadmin",
+      isTargetAdmin: false,
+      targetUser: "blamm01",
+      agentVersion: "1.1.0",
+    });
+    assert.equal(focusOffResp.focus?.active, false);
+    assert.deepEqual(focusOffResp.focus?.websites, []);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

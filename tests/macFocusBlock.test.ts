@@ -16,6 +16,7 @@ import { DeviceCommands } from "../src/micromdm/deviceCommands";
 import { FocusScheduler } from "../src/scheduler/focusScheduler";
 import { EventBus } from "../src/events/eventBus";
 import { SafeModeServiceApi } from "../src/services/safeModeService";
+import { LapsServiceApi } from "../src/services/lapsService";
 
 function createTempDir(): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), "mac-focus-test-"));
@@ -166,6 +167,17 @@ test("focusService simultaneously blocks websites on iPhone and macOS, with app 
   const safeMode = { isActive: () => false } as unknown as SafeModeServiceApi;
   const bus = new EventBus();
 
+  let lapsFocusActive = false;
+  let lapsFocusWebsites: string[] = [];
+  const fakeLapsService = {
+    getStatus: () => ({ serialNumber: "C02TEST" }),
+    setFocusState: (active: boolean, websites: string[]) => {
+      lapsFocusActive = active;
+      lapsFocusWebsites = websites;
+    },
+    getFocusState: () => ({ active: lapsFocusActive, websites: lapsFocusWebsites }),
+  } as unknown as LapsServiceApi;
+
   const focusService = createFocusService(
     fakeDeviceCommands,
     scheduler,
@@ -173,11 +185,16 @@ test("focusService simultaneously blocks websites on iPhone and macOS, with app 
     focusWebsitesPath,
     safeMode,
     bus,
-    dm
+    dm,
+    fakeLapsService
   );
 
   // 1. BẬT Focus Mode
   await focusService.enable();
+
+  // Kiểm tra LAPS focus state được cập nhật cho macOS /etc/hosts
+  assert.equal(lapsFocusActive, true, "LAPS focusState.active phải là true");
+  assert.deepEqual(lapsFocusWebsites, ["facebook.com"], "LAPS focusState.websites phải chứa facebook.com");
 
   // Kiểm tra: iPhone nhận profile có cả app restriction và web filter
   assert.ok(installedProfiles["UDID-IPHONE"]?.length === 1, "iPhone phải nhận được 1 profile");
@@ -198,6 +215,9 @@ test("focusService simultaneously blocks websites on iPhone and macOS, with app 
 
   // 2. TẮT Focus Mode
   await focusService.disable();
+
+  assert.equal(lapsFocusActive, false, "LAPS focusState.active phải là false sau khi tắt");
+  assert.deepEqual(lapsFocusWebsites, [], "LAPS focusState.websites phải rỗng");
 
   // Kiểm tra: Cả iPhone và MacBook đều được gỡ profile
   assert.ok(removedProfiles["UDID-IPHONE"]?.includes(FOCUS_PROFILE_IDENTIFIER), "iPhone phải được gỡ profile");

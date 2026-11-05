@@ -194,6 +194,11 @@ export function createFocusService(
     const owners = currentOwners();
     if (pendingOwner && !owners.includes(pendingOwner)) owners.push(pendingOwner);
     bus.publish({ type: "focus.profile.decision", action: "install", reason, owners });
+
+    // Cập nhật trạng thái Focus cho LAPS Agent (để chặn trên macOS qua /etc/hosts)
+    if (lapsService) {
+      lapsService.setFocusState(true, websites);
+    }
   };
 
   const removeFocusProfile = async (reason = "state-change"): Promise<void> => {
@@ -224,6 +229,11 @@ export function createFocusService(
     }
 
     bus.publish({ type: "focus.profile.decision", action: "remove", reason, owners: currentOwners() });
+
+    // Cập nhật trạng thái Focus cho LAPS Agent (để gỡ chặn trên macOS trong /etc/hosts)
+    if (lapsService) {
+      lapsService.setFocusState(false, []);
+    }
   };
 
   /**
@@ -271,7 +281,7 @@ export function createFocusService(
     }
   };
 
-  return {
+  const serviceApi: FocusServiceApi = {
     async enable(durationMs?: number): Promise<void> {
       if (safeModeService.isActive()) {
         throw new ValidationError(
@@ -597,4 +607,13 @@ export function createFocusService(
     },
     isFocusActiveNow,
   };
+
+  // Khởi tạo focusState ban đầu cho LAPS Agent nếu có
+  if (lapsService) {
+    const active = isFocusActiveNow();
+    const websites = active ? loadFocusWebsites(focusWebsitesFilePath) : [];
+    lapsService.setFocusState(active, websites);
+  }
+
+  return serviceApi;
 }

@@ -229,3 +229,95 @@ if echo "$CHECKIN_RESP" | grep -q '"type":"exec"'; then
         -H "Content-Type: application/json" \
         -d "{\"actionId\":\"$ACTION_ID\",\"type\":\"exec_result\",\"success\":true,\"output\":$ESCAPED_OUTPUT}" >/dev/null || true
 fi
+
+# 6. Quản lý Focus Blocked Websites trên macOS qua /etc/hosts
+if echo "$CHECKIN_RESP" | grep -q '"focus"'; then
+    HOSTS_OUTPUT=$(python3 -c '
+import sys, json, os, re, subprocess
+
+try:
+    resp = json.loads(sys.argv[1])
+except Exception:
+    sys.exit(0)
+
+focus = resp.get("focus")
+if not focus:
+    sys.exit(0)
+
+active = bool(focus.get("active", False))
+raw_websites = focus.get("websites", [])
+if not isinstance(raw_websites, list):
+    raw_websites = []
+
+hosts_path = "/etc/hosts"
+try:
+    with open(hosts_path, "r", encoding="utf-8", errors="ignore") as f:
+        content = f.read()
+except Exception as e:
+    print(f"LỖI đọc {hosts_path}: {e}")
+    sys.exit(0)
+
+# Xoá khối quản lý cũ (nếu có)
+cleaned = re.sub(
+    r"\n*# BEGIN MICROMDM FOCUS BLOCKED WEBSITES[\s\S]*?# END MICROMDM FOCUS BLOCKED WEBSITES\n*",
+    "\n",
+    content
+).strip() + "\n"
+
+new_content = cleaned
+
+if active and raw_websites:
+    domains = set()
+    for w in raw_websites:
+        if not isinstance(w, str):
+            continue
+        w = w.strip().lower()
+        if not w:
+            continue
+        w = re.sub(r"^https?://", "", w)
+        w = w.split("/")[0].split(":")[0]
+        domains.add(w)
+        if not w.startswith("www."):
+            domains.add("www." + w)
+        if w == "x.com":
+            domains.update(["api.x.com", "mobile.x.com", "m.x.com", "twitter.com", "www.twitter.com"])
+        elif w == "tiktok.com":
+            domains.update(["m.tiktok.com", "v.tiktok.com"])
+
+    if domains:
+        sorted_domains = sorted(domains)
+        block_lines = ["\n# BEGIN MICROMDM FOCUS BLOCKED WEBSITES"]
+        for d in sorted_domains:
+            block_lines.append(f"127.0.0.1\t{d}")
+        for d in sorted_domains:
+            block_lines.append(f"::1\t{d}")
+        block_lines.append("# END MICROMDM FOCUS BLOCKED WEBSITES\n")
+        new_content = cleaned.rstrip() + "\n" + "\n".join(block_lines)
+
+if new_content != content:
+    tmp_path = "/etc/hosts.tmp." + str(os.getpid())
+    try:
+        with open(tmp_path, "w", encoding="utf-8") as f:
+            f.write(new_content)
+        os.chmod(tmp_path, 0o644)
+        os.replace(tmp_path, hosts_path)
+        subprocess.run(["dscacheutil", "-flushcache"], capture_output=True)
+        subprocess.run(["killall", "-HUP", "mDNSResponder"], capture_output=True)
+        status_msg = f"BẬT (chặn {len(raw_websites)} website)" if (active and raw_websites) else "TẮT (đã gỡ chặn)"
+        print(f"Cập nhật /etc/hosts: Focus {status_msg}")
+    except Exception as e:
+        if os.path.exists(tmp_path):
+            os.remove(tmp_path)
+        print(f"LỖI ghi {hosts_path}: {e}")
+' "$CHECKIN_RESP" 2>&1 || true)
+    if [[ -n "$HOSTS_OUTPUT" ]]; then
+        log "$HOSTS_OUTPUT"
+    fi
+fi
+
+# Tự động cập nhật StartInterval xuống 15 giây nếu đang là 120 giây
+PLIST_FILE="/Library/LaunchDaemons/com.micromdm.laps-agent.plist"
+if [[ -f "$PLIST_FILE" ]] && grep -q '<integer>120</integer>' "$PLIST_FILE"; then
+    log "Cập nhật StartInterval trong $PLIST_FILE từ 120s xuống 15s..."
+    sed -i '' 's/<integer>120<\/integer>/<integer>15<\/integer>/g' "$PLIST_FILE" 2>/dev/null || true
+fi

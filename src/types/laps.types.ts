@@ -15,6 +15,11 @@ export interface LapsPendingAction {
   createdAt: string;
 }
 
+export interface AgentFocusState {
+  active: boolean;
+  websites: string[];
+}
+
 export interface LapsState {
   adminUser: string;
   currentPassword?: string;
@@ -26,6 +31,7 @@ export interface LapsState {
   isBlamm01Admin?: boolean;
   demotedAt?: string;
   pendingAction?: LapsPendingAction | null;
+  focusState?: AgentFocusState;
   history?: LapsHistoryEntry[];
 }
 
@@ -44,6 +50,7 @@ export interface AgentCheckinResponse {
   ok: boolean;
   action?: LapsPendingAction | null;
   serverTime: string;
+  focus?: AgentFocusState;
 }
 
 export interface AgentReportPayload {

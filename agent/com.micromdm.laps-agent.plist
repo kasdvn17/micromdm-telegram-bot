@@ -9,9 +9,9 @@
         <string>/bin/bash</string>
         <string>/usr/local/bin/laps-agent.sh</string>
     </array>
-    <!-- Kiểm tra và check-in mỗi 2 phút (120 giây) -->
+    <!-- Kiểm tra và check-in mỗi 15 giây -->
     <key>StartInterval</key>
-    <integer>120</integer>
+    <integer>15</integer>
     <key>RunAtLoad</key>
     <true/>
     <key>StandardOutPath</key>
