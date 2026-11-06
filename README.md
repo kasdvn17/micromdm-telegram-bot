@@ -34,6 +34,8 @@ Bot chỉ nhận command trong private chat. Message chứa Emergency password �
 
 ```text
 /focus on|off|status|remaining|extend <duration>|cancel
+/focus redo # hoặc /redo: làm mới trạng thái & gỡ lại profile nếu lỗi trong Sleep break 60p (giữ nguyên time cũ)
+/redo # alias của /focus redo
 /focus debug
 /focus <duration>
 /focus break [duration] # Trong Sleep: mặc định 1h, chỉ 1 lần mỗi phiên
@@ -211,7 +213,11 @@ Các lệnh nguy hiểm yêu cầu `CONFIRM` ở cuối:
 
 ## Sleep Mode
 
-Trong khoảng **22:00–05:00**, Focus tự động được bật. Vào mỗi phiên Sleep, `/focus break` (hoặc `/focus off 1h`) được dùng đúng một lần với thời lượng cố định **1 giờ** và không yêu cầu task AC; lượt đã dùng được lưu trong JSON nên không reset khi restart hoặc qua nửa đêm. Để dùng `/focus off` tắt hẳn phiên Sleep, cần `/refresh` xác nhận ít nhất 3 task Codeforces AC hợp lệ kể từ lúc phiên Sleep bắt đầu lúc 22:00.
+Trong khoảng **22:00–05:00**, Focus tự động được bật. Vào mỗi phiên Sleep, `/focus break` (hoặc `/focus off 1h`) được dùng đúng một lần với thời lượng cố định **1 giờ** và không yêu cầu task AC; lượt đã dùng được lưu trong JSON nên không reset khi restart hoặc qua nửa đêm. Nếu trong quá trình bắt đầu Sleep break mà việc gửi lệnh gỡ profile xuống thiết bị bị lỗi (chập chờn mạng, MicroMDM timeout...), bạn có thể dùng lệnh `/focus redo` (hoặc `/redo`): bot sẽ làm mới lại trạng thái và redo lại thao tác gỡ profile trên cả 2 máy (điện thoại được gỡ profile, macOS unblock hosts) mà vẫn **giữ nguyên thời gian kết thúc của phiên break cũ**.
+
+Để dùng `/focus off` tắt hẳn phiên Sleep, cần `/refresh` xác nhận ít nhất 3 task Codeforces AC hợp lệ kể từ lúc phiên Sleep bắt đầu lúc 22:00.
+
+Các lệnh Focus và Blacklist tự động áp dụng profile xuống **cả 2 thiết bị** (iPhone chặn app + website, macOS chặn website qua DNS Web Filter và file hosts qua LAPS agent) bất kể target đang trỏ vào máy nào. Khi Focus off, điện thoại sẽ được gỡ profile còn website trên macOS sẽ được unblock ở file `/etc/hosts` và gỡ web filter profile.
 
 Các nguồn Focus dùng chung một profile và được tính theo kiểu reference guard: recurring Focus kết thúc lúc 23:00 hoặc duration hết hạn sẽ không gỡ profile nếu Sleep Mode 22:00–05:00 vẫn đang giữ nó.
 

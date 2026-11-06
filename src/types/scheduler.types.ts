@@ -54,6 +54,7 @@ export interface SleepUnlockStatus {
   withinTimeRange: boolean;
   sessionDate?: string;
   sessionStartedAt?: string;
+  breakUntil?: string;
   acceptedTaskCount: number;
   requiredTaskCount: number;
   eligible: boolean;

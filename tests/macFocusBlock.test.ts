@@ -163,6 +163,8 @@ test("focusService simultaneously blocks websites on iPhone and macOS, with app 
     async () => {},
     async () => {}
   );
+  scheduler.isWithinSleepWindow = () => false;
+  scheduler.isWithinSleepTimeRange = () => false;
 
   const safeMode = { isActive: () => false } as unknown as SafeModeServiceApi;
   const bus = new EventBus();
@@ -269,6 +271,8 @@ test("addBlockWebsite updates both iPhone and macOS immediately if Focus is curr
     async () => {},
     async () => {}
   );
+  scheduler.isWithinSleepWindow = () => false;
+  scheduler.isWithinSleepTimeRange = () => false;
   const safeMode = { isActive: () => false } as unknown as SafeModeServiceApi;
   const bus = new EventBus();
 

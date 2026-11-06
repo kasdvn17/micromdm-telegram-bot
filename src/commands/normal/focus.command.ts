@@ -119,7 +119,7 @@ export function createFocusCommand(
             return `🌙 Sleep Mode đã được TẮT cho phiên hôm nay.${breakInfo}`;
           }
           if (status.sleepUnlock.breakActive) {
-            return `🌙 Sleep break đang chạy - còn ${formatDuration(status.sleepUnlock.breakRemainingMs)}. Lượt duy nhất của phiên này đã được dùng.${breakInfo}`;
+            return `🌙 Sleep break đang chạy - còn ${formatDuration(status.sleepUnlock.breakRemainingMs)}. Lượt duy nhất của phiên này đã được dùng (dùng /focus redo hoặc /redo nếu cần gỡ lại profile).${breakInfo}`;
           }
           if (status.withinSleep) {
             return status.sleepUnlock.unlockedByEarlierFocusOff || legacyDailyUnlock
@@ -196,6 +196,29 @@ export function createFocusCommand(
         case "cancel":
           await focusService.cancel();
           return "🎯 Đã huỷ Focus session hiện tại.";
+
+        case "redo":
+        case "retry":
+        case "refresh": {
+          const result = await focusService.redoBreak();
+          const timeRemaining = formatDuration(result.remainingMs);
+          if (result.breakType === "sleep") {
+            const endsAtText = result.breakUntil
+              ? ` (kết thúc lúc ${new Date(result.breakUntil).toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" })})`
+              : "";
+            return (
+              `🔄 Đã refresh trạng thái và redo thao tác gỡ profile Focus thành công.\n` +
+              `🌙 Phiên Sleep break 60p vẫn giữ nguyên thời gian cũ: còn lại ${timeRemaining}${endsAtText}.\n` +
+              `• Điện thoại: Đã gửi lệnh gỡ profile Focus.\n` +
+              `• macOS: Đã unblock website trong /etc/hosts và gỡ profile web filter.`
+            );
+          }
+          return (
+            `🔄 Đã refresh trạng thái và redo thao tác gỡ profile Focus thành công.\n` +
+            `☕ Thời gian break còn lại: ${timeRemaining}.\n` +
+            `• Đã gửi lại lệnh gỡ profile trên cả 2 máy.`
+          );
+        }
 
         case "schedule": {
           const scheduleAction = rest[0];
@@ -286,7 +309,7 @@ export function createFocusCommand(
 
         default: {
           // không match subcommand nào -> thử parse như duration, vd "/focus 90m"
-          if (!sub) throw new ValidationError("Cú pháp: /focus on|off|status|remaining|extend <d>|cancel|break [d]|schedule|blockadd|blocklist|blwadd|blwlist ...");
+          if (!sub) throw new ValidationError("Cú pháp: /focus on|off|status|redo|remaining|extend <d>|cancel|break [d]|schedule|blockadd|blocklist|blwadd|blwlist ...");
           const ms = parseDurationToMs(sub);
           await focusService.enable(ms);
           return `🎯 Focus mode đã BẬT trong ${formatDuration(ms)}.`;

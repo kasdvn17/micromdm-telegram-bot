@@ -76,7 +76,9 @@ export async function buildDashboardReply(
                   text:
                     focus.sleepUnlock.withinTimeRange
                       ? focus.sleepUnlock.breakUsed
-                        ? "🌙 Sleep break đã dùng"
+                        ? focus.sleepUnlock.breakActive
+                          ? "🔄 Redo Sleep break"
+                          : "🌙 Sleep break đã dùng"
                         : "🌙 Sleep break 1h"
                       : "☕ Break 15m",
                   callback_data: "dash:break",

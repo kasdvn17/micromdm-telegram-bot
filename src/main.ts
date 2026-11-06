@@ -32,6 +32,7 @@ import { startWebhookServer } from "./enrollment/webhookServer";
 import { CommandDefinition } from "./types/command.types";
 
 import { createFocusCommand } from "./commands/normal/focus.command";
+import { createRedoCommand } from "./commands/normal/redo.command";
 import { createDeviceManagementCommands } from "./commands/normal/device.command";
 import { createMenuCommand } from "./commands/normal/menu.command";
 import { createQuoteCommand } from "./commands/normal/quote.command";
@@ -232,7 +233,10 @@ async function main(): Promise<void> {
     deviceCommands,
     config.constants.blacklistFilePath,
     config.constants.blacklistWebsitesFilePath,
-    bus
+    bus,
+    deviceManager,
+    lapsService,
+    config.constants.macDeviceUUID
   );
 
   const deviceInfoPoller = createDeviceInfoPoller(deviceCommands, deviceManager);
@@ -277,6 +281,7 @@ async function main(): Promise<void> {
   const commands: CommandDefinition[] = [
     ...createDeviceManagementCommands(deviceManager, microMdmClient),
     createFocusCommand(focusService, codeforcesTaskService),
+    ...createRedoCommand(focusService),
     createTaskCommand(codeforcesTaskService, focusService),
     createRefreshCommand(codeforcesTaskService, focusService),
     createStatusCommand(focusService, codeforcesTaskService, deviceInfoService, deviceManager),

@@ -256,6 +256,7 @@ export class FocusScheduler {
       withinTimeRange: true,
       sessionDate,
       sessionStartedAt: sleepSessionStart(now).toISOString(),
+      breakUntil: current?.breakUntil,
       acceptedTaskCount,
       requiredTaskCount: FocusScheduler.SLEEP_UNLOCK_REQUIRED_AC,
       eligible:

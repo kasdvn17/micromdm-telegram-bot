@@ -86,12 +86,19 @@ export function attachMenuInteraction(
             status.sleepUnlock.withinTimeRange &&
             !status.sleepUnlock.disabled;
           if (inSleepSession) {
-            await focusService.breakFocus(60 * 60 * 1000);
+            if (status.sleepUnlock.breakActive) {
+              await focusService.redoBreak();
+            } else {
+              await focusService.breakFocus(60 * 60 * 1000);
+            }
           } else {
             taskService.assertBreakAllowed(query.from.id);
             await focusService.breakFocus(15 * 60 * 1000);
             taskService.recordBreakStarted(query.from.id);
           }
+        }
+        if (action === "redo") {
+          await focusService.redoBreak();
         }
         if (action === "off") {
           const status = focusService.status();

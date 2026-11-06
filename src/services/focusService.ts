@@ -14,7 +14,6 @@ import { FocusSchedule, SleepUnlockStatus } from "../types/scheduler.types";
 import { DeviceManagerServiceApi, isMacDevice } from "./deviceManagerService";
 import { LapsServiceApi } from "./lapsService";
 import { getLogger } from "../utils/logger";
-import { DeviceRecord } from "../types/micromdm.types";
 
 export interface FocusDisableResult {
   sleepModeDisabled: boolean;
@@ -52,6 +51,12 @@ export interface FocusServiceApi {
   cancel(): Promise<void>;
   /** /focus break <time> - tạm ngưng Focus trong lúc đang ở khung giờ recurring active */
   breakFocus(ms: number): Promise<void>;
+  /** /focus redo (hoặc /redo) - làm mới trạng thái và gửi lại lệnh gỡ profile trong phiên break (giữ nguyên thời gian) */
+  redoBreak(): Promise<{
+    breakType: "sleep" | "regular";
+    remainingMs: number;
+    breakUntil?: string;
+  }>;
   /** Số lần / tổng thời gian break CÒN LẠI trong hôm nay (sau giới hạn 4 lần / 1 giờ) */
   breakUsageRemainingToday(): { breaksRemaining: number; totalMsRemaining: number };
   recordSleepAcceptedTasks(acceptedAtValues: readonly string[]): SleepUnlockStatus;
@@ -117,10 +122,14 @@ export function createFocusService(
     ...(scheduler.isWithinSleepWindow() ? ["sleep"] : []),
   ];
 
-  const getMacDevicesToTarget = (): DeviceRecord[] => {
-    if (!deviceManager) return [];
-    const lapsSerial = lapsService?.getStatus().serialNumber;
-    return deviceManager.getMacDevices(lapsSerial, macDeviceUUID);
+  const getDeviceCmd = (udid: string): {
+    installProfile(payload: string, expectedIdentifier?: string): Promise<unknown>;
+    removeProfile(identifier: string): Promise<unknown>;
+  } => {
+    if (typeof deviceCommands.forDevice === "function") {
+      return deviceCommands.forDevice(udid);
+    }
+    return deviceCommands;
   };
 
   const installFocusProfile = async (
@@ -129,67 +138,61 @@ export function createFocusService(
   ): Promise<void> => {
     const bundleIds = loadFocusBundleIds(restrictedAppsFilePath);
     const websites = loadFocusWebsites(focusWebsitesFilePath);
+    const lapsSerial = lapsService?.getStatus().serialNumber;
 
-    // 1. Cài đặt profile cho thiết bị target hiện tại
-    const activeTarget = deviceManager?.getActiveTargetDevice();
-    const isTargetMac = activeTarget
-      ? isMacDevice(activeTarget, lapsService?.getStatus().serialNumber, macDeviceUUID)
-      : false;
+    const allDevices = deviceManager ? deviceManager.listDevices() : [];
+    const targetDevices = allDevices.length > 0
+      ? allDevices
+      : [{ udid: deviceCommands.deviceUUID || "default", name: "Default" }];
 
-    if (isTargetMac) {
-      // Nếu target chính là máy Mac: chỉ cài web filter (không chặn app)
-      if (websites.length > 0) {
-        const macProfile = buildMacOsFocusProfile({
-          identifier: FOCUS_PROFILE_IDENTIFIER,
-          displayName: "Focus Mode",
-          blockedWebsites: websites,
-        });
-        await deviceCommands.installProfile(macProfile, FOCUS_PROFILE_IDENTIFIER);
-      } else {
-        await deviceCommands.removeProfile(FOCUS_PROFILE_IDENTIFIER).catch(() => undefined);
-      }
-    } else {
-      // Target là iOS (iPhone/iPad): cài profile chặn cả app + website
-      const profile = buildRestrictedAppsProfile({
-        identifier: FOCUS_PROFILE_IDENTIFIER,
-        displayName: "Focus Mode",
-        restrictedBundleIds: bundleIds,
-        blockedWebsites: websites,
-      });
-      await deviceCommands.installProfile(profile, FOCUS_PROFILE_IDENTIFIER);
-    }
-    bus.publish({ type: "profile.installed", identifier: FOCUS_PROFILE_IDENTIFIER });
+    for (const dev of targetDevices) {
+      const isMac = isMacDevice(dev, lapsSerial, macDeviceUUID);
+      const cmd = getDeviceCmd(dev.udid);
 
-    // 2. ĐỒNG THỜI cài đặt/cập nhật web filter trên tất cả thiết bị macOS
-    const macDevices = getMacDevicesToTarget();
-    for (const macDev of macDevices) {
-      if (activeTarget && macDev.udid.toLowerCase() === activeTarget.udid.toLowerCase()) {
-        continue;
-      }
       try {
-        if (websites.length > 0) {
-          const macProfile = buildMacOsFocusProfile({
+        if (isMac) {
+          // macOS: chỉ cài web filter (không chặn app)
+          if (websites.length > 0) {
+            const macProfile = buildMacOsFocusProfile({
+              identifier: FOCUS_PROFILE_IDENTIFIER,
+              displayName: "Focus Mode",
+              blockedWebsites: websites,
+            });
+            getLogger().info("[focusService] Đang đẩy profile Focus web filter xuống macOS", {
+              udid: dev.udid,
+              name: dev.name,
+              websiteCount: websites.length,
+            });
+            await cmd.installProfile(macProfile, FOCUS_PROFILE_IDENTIFIER);
+          } else {
+            await cmd.removeProfile(FOCUS_PROFILE_IDENTIFIER).catch(() => undefined);
+          }
+        } else {
+          // iOS / Phone: cài profile chặn cả app + website
+          const profile = buildRestrictedAppsProfile({
             identifier: FOCUS_PROFILE_IDENTIFIER,
             displayName: "Focus Mode",
+            restrictedBundleIds: bundleIds,
             blockedWebsites: websites,
           });
-          getLogger().info("[focusService] Đang đẩy profile Focus web filter xuống macOS", {
-            udid: macDev.udid,
-            name: macDev.name,
+          getLogger().info("[focusService] Đang đẩy profile Focus xuống iOS", {
+            udid: dev.udid,
+            name: dev.name,
+            bundleIdCount: bundleIds.length,
             websiteCount: websites.length,
           });
-          await deviceCommands.forDevice(macDev.udid).installProfile(macProfile, FOCUS_PROFILE_IDENTIFIER);
-        } else {
-          await deviceCommands.forDevice(macDev.udid).removeProfile(FOCUS_PROFILE_IDENTIFIER).catch(() => undefined);
+          await cmd.installProfile(profile, FOCUS_PROFILE_IDENTIFIER);
         }
       } catch (err) {
-        getLogger().warn("[focusService] Không thể cài profile Focus xuống macOS (máy có thể đang offline/sleep)", {
-          udid: macDev.udid,
-          name: macDev.name,
+        getLogger().warn("[focusService] Không thể cài profile Focus xuống thiết bị (máy có thể đang offline/sleep)", {
+          udid: dev.udid,
+          name: dev.name,
           error: (err as Error).message,
         });
       }
     }
+
+    bus.publish({ type: "profile.installed", identifier: FOCUS_PROFILE_IDENTIFIER });
 
     const owners = currentOwners();
     if (pendingOwner && !owners.includes(pendingOwner)) owners.push(pendingOwner);
@@ -202,32 +205,29 @@ export function createFocusService(
   };
 
   const removeFocusProfile = async (reason = "state-change"): Promise<void> => {
-    // 1. Gỡ profile khỏi thiết bị target hiện tại
-    await deviceCommands.removeProfile(FOCUS_PROFILE_IDENTIFIER);
-    bus.publish({ type: "profile.removed", identifier: FOCUS_PROFILE_IDENTIFIER });
+    const allDevices = deviceManager ? deviceManager.listDevices() : [];
+    const targetDevices = allDevices.length > 0
+      ? allDevices
+      : [{ udid: deviceCommands.deviceUUID || "default", name: "Default" }];
 
-    // 2. ĐỒNG THỜI gỡ profile khỏi tất cả thiết bị macOS
-    const activeTarget = deviceManager?.getActiveTargetDevice();
-    const macDevices = getMacDevicesToTarget();
-    for (const macDev of macDevices) {
-      if (activeTarget && macDev.udid.toLowerCase() === activeTarget.udid.toLowerCase()) {
-        continue;
-      }
+    for (const dev of targetDevices) {
+      const cmd = getDeviceCmd(dev.udid);
       try {
-        getLogger().info("[focusService] Đang gỡ profile Focus khỏi macOS", {
-          udid: macDev.udid,
-          name: macDev.name,
+        getLogger().info("[focusService] Đang gỡ profile Focus khỏi thiết bị", {
+          udid: dev.udid,
+          name: dev.name,
         });
-        await deviceCommands.forDevice(macDev.udid).removeProfile(FOCUS_PROFILE_IDENTIFIER);
+        await cmd.removeProfile(FOCUS_PROFILE_IDENTIFIER);
       } catch (err) {
-        getLogger().warn("[focusService] Không thể gỡ profile Focus khỏi macOS (máy có thể đang offline/sleep)", {
-          udid: macDev.udid,
-          name: macDev.name,
+        getLogger().warn("[focusService] Không thể gỡ profile Focus khỏi thiết bị (máy có thể đang offline/sleep)", {
+          udid: dev.udid,
+          name: dev.name,
           error: (err as Error).message,
         });
       }
     }
 
+    bus.publish({ type: "profile.removed", identifier: FOCUS_PROFILE_IDENTIFIER });
     bus.publish({ type: "focus.profile.decision", action: "remove", reason, owners: currentOwners() });
 
     // Cập nhật trạng thái Focus cho LAPS Agent (để gỡ chặn trên macOS trong /etc/hosts)
@@ -416,6 +416,12 @@ export function createFocusService(
           throw new ValidationError("Sleep Mode đã được tắt cho phiên hiện tại.");
         }
         if (sleep.breakUsed) {
+          if (sleep.breakActive) {
+            throw new ValidationError(
+              `Phiên Sleep break 1 giờ đang chạy (còn ${formatDuration(sleep.breakRemainingMs)}). ` +
+                `Nếu profile chưa được gỡ hoặc gặp lỗi, dùng /focus redo (hoặc /redo) để làm mới trạng thái và gỡ lại profile (giữ nguyên thời gian cũ).`
+            );
+          }
           throw new ValidationError(
             "Đã dùng lượt Sleep break 1 giờ duy nhất của phiên này."
           );
@@ -467,6 +473,44 @@ export function createFocusService(
         breaksRemainingToday: FocusScheduler.MAX_BREAKS_PER_DAY - usageAfter.count,
         breakMsRemainingToday: FocusScheduler.MAX_BREAK_TOTAL_MS_PER_DAY - usageAfter.totalMs,
       });
+    },
+
+    async redoBreak(): Promise<{
+      breakType: "sleep" | "regular";
+      remainingMs: number;
+      breakUntil?: string;
+    }> {
+      const currentStatus = serviceApi.status();
+      const inSleepBreak =
+        currentStatus.sleepUnlock.breakActive && currentStatus.sleepUnlock.breakRemainingMs > 0;
+      const inRegularBreak = currentStatus.onBreak && (currentStatus.breakRemainingMs ?? 0) > 0;
+
+      if (!inSleepBreak && !inRegularBreak) {
+        throw new ValidationError(
+          "Hiện không có phiên Sleep break (hoặc break) nào đang chạy để refresh/redo."
+        );
+      }
+
+      if (inSleepBreak) {
+        // Redo gỡ profile trong phiên sleep break, giữ nguyên breakUntil cũ
+        await removeFocusProfile("sleep-break-redo");
+        bus.publish({
+          type: "focus.sleep.break.started",
+          durationMs: currentStatus.sleepUnlock.breakRemainingMs,
+        });
+        return {
+          breakType: "sleep",
+          remainingMs: currentStatus.sleepUnlock.breakRemainingMs,
+          breakUntil: currentStatus.sleepUnlock.breakUntil,
+        };
+      }
+
+      // Regular break
+      await removeFocusProfile("break-redo");
+      return {
+        breakType: "regular",
+        remainingMs: currentStatus.breakRemainingMs ?? 0,
+      };
     },
 
     breakUsageRemainingToday(): { breaksRemaining: number; totalMsRemaining: number } {
